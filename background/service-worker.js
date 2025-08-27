@@ -158,18 +158,18 @@ async function processAudioBatch() {
 async function transcribeAudio(audioBlob) {
     // For MVP: Use hardcoded API key with usage limits
     // TODO: Replace with backend proxy service in production
-    const MANAGED_API_KEY = 'sk-proj-YOUR_API_KEY_HERE' // Replace with your key
+    const MANAGED_API_KEY = 'fw_' // Replace with your key
 
     const formData = new FormData()
     formData.append('file', audioBlob, 'audio.webm')
-    formData.append('model', 'whisper-1')
-    formData.append('response_format', 'json')
-    formData.append('language', 'en')
+    formData.append('model', 'whisper-v3-turbo')
+    formData.append('temperature', '0')
+    formData.append('vad_model', 'silero')
 
-    console.log('Sending audio to OpenAI Whisper...')
+    console.log('Sending audio to Fireworks Whisper...')
 
     const response = await fetch(
-        'https://api.openai.com/v1/audio/transcriptions',
+        'https://audio-turbo.us-virginia-1.direct.fireworks.ai/v1/audio/transcriptions',
         {
             method: 'POST',
             headers: {
@@ -181,7 +181,7 @@ async function transcribeAudio(audioBlob) {
 
     if (!response.ok) {
         throw new Error(
-            `OpenAI API error: ${response.status} ${response.statusText}`,
+            `Fireworks API error: ${response.status} ${response.statusText}`,
         )
     }
 
