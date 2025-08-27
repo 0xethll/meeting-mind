@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MeetingMind</title>
+    <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>MeetingMind</h1>
+            <p class="subtitle">AI Meeting Transcription</p>
+        </div>
+        
+        <div class="status-section">
+            <div class="status-indicator">
+                <span class="status-dot" id="statusDot"></span>
+                <span class="status-text" id="statusText">Ready</span>
+            </div>
+        </div>
+        
+        <div class="controls">
+            <button id="startBtn" class="btn btn-primary">
+                <span class="btn-icon">🎙️</span>
+                Start Recording
+            </button>
+            <button id="stopBtn" class="btn btn-secondary" disabled>
+                <span class="btn-icon">⏹️</span>
+                Stop Recording
+            </button>
+        </div>
+        
+        <div class="transcript-section">
+            <div class="transcript-header">
+                <h3>Live Transcript</h3>
+                <button id="clearBtn" class="btn-small">Clear</button>
+            </div>
+            <div class="transcript-container" id="transcriptContainer">
+                <p class="transcript-placeholder">Click "Start Recording" to begin transcription...</p>
+            </div>
+        </div>
+        
+        <div class="footer">
+            <button id="settingsBtn" class="btn-link">Settings</button>
+            <button id="exportBtn" class="btn-link">Export</button>
+        </div>
+    </div>
+    
+    <script src="popup.js"></script>
+</body>
+</html>
