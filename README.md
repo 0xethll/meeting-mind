@@ -8,13 +8,14 @@ Chrome extension for real-time meeting transcription with speaker identification
 
 1. Open Chrome and navigate to `chrome://extensions/`
 2. Enable "Developer mode" (toggle in top right)
-3. Click "Load unpacked" 
-4. Select the project folder (`/Users/hanlynn/Projects/sentient/unname`)
+3. Click "Load unpacked"
+4. Select the project folder
 5. The extension should now appear in your extensions list
 
 ### Testing the Extension
 
 1. Navigate to a supported meeting platform:
+
    - Google Meet: https://meet.google.com/
    - Zoom: https://zoom.us/
    - Microsoft Teams: https://teams.microsoft.com/
@@ -26,32 +27,11 @@ Chrome extension for real-time meeting transcription with speaker identification
 ### Current Status
 
 **Phase 1.1 - COMPLETED:**
+
 - ✅ Chrome extension structure initialized
 - ✅ manifest.json created with required permissions
 - ✅ Basic popup UI with start/stop controls
 - ✅ Ready for testing in Chrome developer mode
-
-**Next Steps (Phase 1.2):**
-- Audio capture implementation
-- OpenAI Whisper API integration
-- Real-time transcription display
-
-### File Structure
-
-```
-/
-├── manifest.json              # Extension configuration
-├── popup/
-│   ├── popup.html            # Extension popup interface
-│   ├── popup.css             # Styling for popup
-│   └── popup.js              # Popup functionality
-├── background/
-│   └── service-worker.js     # Background processing
-├── content/
-│   └── content-script.js     # Meeting platform integration
-├── assets/                   # Icons and static files
-└── docs/                     # Documentation
-```
 
 ### Development Notes
 

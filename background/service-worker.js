@@ -30,20 +30,23 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 async function handleStartRecording(tabId) {
     try {
-        // Request tab capture stream
-        const stream = await chrome.tabCapture.capture({
-            audio: true,
-            video: false
+        // Get media stream ID for Manifest V3
+        const streamId = await chrome.tabCapture.getMediaStreamId({
+            consumerTabId: tabId
         });
         
-        if (!stream) {
-            throw new Error('Failed to capture tab audio');
+        if (!streamId) {
+            throw new Error('Failed to get media stream ID');
         }
         
-        console.log('Audio capture started for tab:', tabId);
+        // Send stream ID to content script for audio capture
+        await chrome.tabs.sendMessage(tabId, {
+            action: 'initializeAudioCapture',
+            streamId: streamId
+        });
         
-        // TODO: Implement audio processing and transcription
-        // For now, just return success
+        console.log('Audio capture initialized for tab:', tabId);
+        
         return { success: true };
         
     } catch (error) {
@@ -54,8 +57,20 @@ async function handleStartRecording(tabId) {
 
 async function handleStopRecording() {
     try {
-        // TODO: Implement stop recording logic
-        console.log('Stopping recording...');
+        // Get the active tab
+        const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+        const activeTab = tabs[0];
+        
+        if (!activeTab) {
+            throw new Error('No active tab found');
+        }
+        
+        // Send stop message to content script
+        await chrome.tabs.sendMessage(activeTab.id, {
+            action: 'stopAudioCapture'
+        });
+        
+        console.log('Recording stopped for tab:', activeTab.id);
         
         return { success: true };
         
