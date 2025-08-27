@@ -98,18 +98,36 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 async function initializeAudioCapture(streamId) {
     try {
-        // Get media stream using the stream ID
-        const stream = await navigator.mediaDevices.getUserMedia({
+        // Get media stream using the stream ID with modern constraints
+        const constraints = {
             audio: {
                 chromeMediaSource: 'tab',
-                chromeMediaSourceId: streamId,
-            },
-        })
+                chromeMediaSourceId: streamId
+            }
+        }
+
+        console.log('Requesting media stream with constraints:', constraints)
+        const stream = await navigator.mediaDevices.getUserMedia(constraints)
+
+        if (!stream || !stream.getAudioTracks().length) {
+            throw new Error('No audio track found in stream')
+        }
+
+        console.log('Audio stream obtained, tracks:', stream.getAudioTracks().length)
+
+        // Check if MediaRecorder is supported with the desired format
+        let mimeType = 'audio/webm;codecs=opus'
+        if (!MediaRecorder.isTypeSupported(mimeType)) {
+            mimeType = 'audio/webm'
+            if (!MediaRecorder.isTypeSupported(mimeType)) {
+                throw new Error('Browser does not support audio recording')
+            }
+        }
 
         // Initialize MediaRecorder
         recordedChunks = []
         mediaRecorder = new MediaRecorder(stream, {
-            mimeType: 'audio/webm;codecs=opus',
+            mimeType: mimeType,
         })
 
         mediaRecorder.ondataavailable = (event) => {
@@ -126,15 +144,41 @@ async function initializeAudioCapture(streamId) {
 
         mediaRecorder.onerror = (event) => {
             console.error('MediaRecorder error:', event)
+            chrome.runtime.sendMessage({
+                action: 'error',
+                error: 'Audio recording error: ' + event.error
+            })
+        }
+
+        mediaRecorder.onstop = () => {
+            console.log('MediaRecorder stopped')
+            // Stop all stream tracks
+            stream.getTracks().forEach(track => track.stop())
         }
 
         // Start recording with 1-second chunks for real-time processing
         mediaRecorder.start(1000)
 
-        console.log('Audio capture started successfully')
+        console.log('Audio capture started successfully with mime type:', mimeType)
     } catch (error) {
         console.error('Error initializing audio capture:', error)
-        throw error
+        
+        // Send specific error message based on error type
+        let errorMessage = 'Failed to start audio capture'
+        if (error.name === 'NotAllowedError') {
+            errorMessage = 'Microphone permission denied. Please allow microphone access.'
+        } else if (error.name === 'NotFoundError') {
+            errorMessage = 'No microphone found. Please check your audio device.'
+        } else if (error.name === 'NotSupportedError') {
+            errorMessage = 'Audio recording not supported in this browser.'
+        }
+        
+        chrome.runtime.sendMessage({
+            action: 'error',
+            error: errorMessage
+        })
+        
+        throw new Error(errorMessage)
     }
 }
 

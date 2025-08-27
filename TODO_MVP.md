@@ -9,18 +9,18 @@
 - [x] Test extension loading in Chrome developer mode
 
 ### 1.2 Audio Capture Implementation  
-- [ ] Research Chrome extension audio capture APIs (tabCapture)
-- [ ] Implement MediaRecorder for tab audio capture
+- [x] Research Chrome extension audio capture APIs (tabCapture)
+- [x] Implement MediaRecorder for tab audio capture
 - [ ] Test audio capture on Google Meet
-- [ ] Handle audio permissions and user consent
-- [ ] Add basic error handling for audio access
+- [x] Handle audio permissions and user consent
+- [x] Add basic error handling for audio access
 
 ### 1.3 Basic Transcription Integration
-- [ ] Set up OpenAI Whisper API account and keys
-- [ ] Implement audio streaming to Whisper API
-- [ ] Display basic transcription in popup
+- [x] Set up OpenAI Whisper API account and keys
+- [x] Implement audio streaming to Whisper API
+- [x] Display basic transcription in popup
 - [ ] Test transcription accuracy with sample audio
-- [ ] Add loading states and error messages
+- [x] Add loading states and error messages
 
 ## Phase 2: Speaker Identification & UI Polish (Week 2)
 

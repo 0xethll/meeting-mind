@@ -35,7 +35,7 @@ class MeetingMindPopup {
     
     async loadStoredData() {
         try {
-            const data = await chrome.storage.local.get(['isRecording', 'transcript']);
+            const data = await chrome.storage.local.get(['isRecording', 'transcript', 'usageData']);
             
             if (data.isRecording) {
                 this.updateUIState('recording');
@@ -44,6 +44,11 @@ class MeetingMindPopup {
             if (data.transcript && data.transcript.length > 0) {
                 this.transcript = data.transcript;
                 this.displayTranscript();
+            }
+
+            // Load and display usage data
+            if (data.usageData) {
+                this.updateUsageDisplay(data.usageData);
             }
         } catch (error) {
             console.error('Error loading stored data:', error);
@@ -59,6 +64,20 @@ class MeetingMindPopup {
                 this.showError('Please navigate to Google Meet, Zoom, or Teams to start recording');
                 return;
             }
+
+            // Check usage limits
+            const usageCheck = await this.checkUsageLimits();
+            if (!usageCheck.canProceed) {
+                this.showError(usageCheck.message);
+                return;
+            }
+            
+            // Show consent message
+            if (!(await this.getAudioConsent())) {
+                return;
+            }
+            
+            this.updateUIState('processing');
             
             // Send message to background script to start recording
             const response = await chrome.runtime.sendMessage({
@@ -71,11 +90,13 @@ class MeetingMindPopup {
                 this.updateUIState('recording');
                 await chrome.storage.local.set({ isRecording: true });
             } else {
-                this.showError(response.error || 'Failed to start recording');
+                this.updateUIState('ready');
+                this.showError(response.error || 'Failed to start recording. Please ensure you have clicked in the meeting tab first.');
             }
         } catch (error) {
             console.error('Error starting recording:', error);
-            this.showError('Failed to start recording');
+            this.updateUIState('ready');
+            this.showError('Failed to start recording. Please try again.');
         }
     }
     
@@ -131,6 +152,9 @@ class MeetingMindPopup {
                 break;
             case 'error':
                 this.showError(message.error);
+                break;
+            case 'usageUpdate':
+                this.updateUsageDisplay(message.data);
                 break;
         }
     }
@@ -205,9 +229,190 @@ class MeetingMindPopup {
         URL.revokeObjectURL(url);
     }
     
+    async getAudioConsent() {
+        const consent = await chrome.storage.local.get(['audioConsent']);
+        if (consent.audioConsent) {
+            return true;
+        }
+        
+        return new Promise((resolve) => {
+            const modal = document.createElement('div');
+            modal.style.cssText = `
+                position: fixed;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                background: rgba(0,0,0,0.5);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                z-index: 10000;
+            `;
+            
+            const dialog = document.createElement('div');
+            dialog.style.cssText = `
+                background: white;
+                padding: 20px;
+                border-radius: 8px;
+                max-width: 300px;
+                text-align: center;
+            `;
+            
+            dialog.innerHTML = `
+                <h3>Audio Recording Consent</h3>
+                <p>This extension will capture audio from your browser tab for transcription. Audio is processed via OpenAI's servers and not stored locally.</p>
+                <div style="margin-top: 15px;">
+                    <button id="consentAllow" style="margin-right: 10px; padding: 8px 16px; background: #059669; color: white; border: none; border-radius: 4px; cursor: pointer;">Allow</button>
+                    <button id="consentDeny" style="padding: 8px 16px; background: #dc2626; color: white; border: none; border-radius: 4px; cursor: pointer;">Deny</button>
+                </div>
+            `;
+            
+            modal.appendChild(dialog);
+            document.body.appendChild(modal);
+            
+            document.getElementById('consentAllow').onclick = async () => {
+                await chrome.storage.local.set({ audioConsent: true });
+                document.body.removeChild(modal);
+                resolve(true);
+            };
+            
+            document.getElementById('consentDeny').onclick = () => {
+                document.body.removeChild(modal);
+                resolve(false);
+            };
+        });
+    }
+
+    async checkUsageLimits() {
+        const storage = await chrome.storage.local.get(['usageData', 'userPlan']);
+        const now = new Date();
+        const today = now.toDateString();
+        
+        let usageData = storage.usageData || {
+            date: today,
+            requestsToday: 0,
+            totalRequests: 0
+        };
+        
+        if (usageData.date !== today) {
+            usageData = {
+                date: today,
+                requestsToday: 0,
+                totalRequests: usageData.totalRequests || 0
+            };
+        }
+        
+        const userPlan = storage.userPlan || 'free';
+        const limits = {
+            free: { daily: 50, total: 1000 },
+            premium: { daily: 1000, total: Infinity }
+        };
+        
+        const limit = limits[userPlan];
+        
+        if (usageData.requestsToday >= limit.daily) {
+            return {
+                canProceed: false,
+                message: `Daily limit reached (${limit.daily} requests). Upgrade to Premium for unlimited usage.`
+            };
+        }
+        
+        if (usageData.totalRequests >= limit.total) {
+            return {
+                canProceed: false,
+                message: `Free tier limit reached (${limit.total} total requests). Upgrade to Premium for unlimited usage.`
+            };
+        }
+        
+        return { canProceed: true };
+    }
+
+    updateUsageDisplay(usageData) {
+        const statusElement = document.getElementById('usageStatus');
+        if (statusElement) {
+            const userPlan = 'free'; // TODO: Get from storage
+            const limits = userPlan === 'free' ? { daily: 50, total: 1000 } : { daily: 1000, total: Infinity };
+            
+            statusElement.textContent = `Usage: ${usageData.requestsToday}/${limits.daily} today, ${usageData.totalRequests}/${limits.total} total`;
+        }
+    }
+
     openSettings() {
-        // Placeholder for settings functionality
-        alert('Settings panel coming soon!');
+        const modal = document.createElement('div');
+        modal.style.cssText = `
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0,0,0,0.5);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 10000;
+        `;
+        
+        const dialog = document.createElement('div');
+        dialog.style.cssText = `
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            max-width: 400px;
+            width: 90%;
+        `;
+        
+        dialog.innerHTML = `
+            <h3>Usage & Settings</h3>
+            <div style="margin: 15px 0;">
+                <h4>Current Plan: Free</h4>
+                <p style="font-size: 12px; color: #666;">
+                    • 50 transcription requests per day<br>
+                    • 1,000 total requests<br>
+                    • Basic speaker identification
+                </p>
+                <div id="usageDisplay" style="margin: 10px 0; padding: 10px; background: #f3f4f6; border-radius: 4px;">
+                    Loading usage data...
+                </div>
+            </div>
+            <div style="margin: 15px 0;">
+                <h4>Upgrade to Premium</h4>
+                <p style="font-size: 12px; color: #666;">
+                    • Unlimited transcriptions<br>
+                    • Advanced speaker diarization<br>
+                    • Meeting summaries<br>
+                    • Priority support
+                </p>
+                <button id="upgradeBtn" style="width: 100%; padding: 8px; background: #059669; color: white; border: none; border-radius: 4px; cursor: pointer; margin-top: 5px;">Upgrade to Premium - $15/month</button>
+            </div>
+            <div style="margin-top: 20px;">
+                <button id="settingsClose" style="padding: 8px 16px; background: #6b7280; color: white; border: none; border-radius: 4px; cursor: pointer;">Close</button>
+            </div>
+        `;
+        
+        modal.appendChild(dialog);
+        document.body.appendChild(modal);
+        
+        // Load and display current usage
+        chrome.storage.local.get(['usageData', 'userPlan']).then(data => {
+            const usageData = data.usageData || { requestsToday: 0, totalRequests: 0 };
+            const userPlan = data.userPlan || 'free';
+            const limits = userPlan === 'free' ? { daily: 50, total: 1000 } : { daily: 1000, total: Infinity };
+            
+            document.getElementById('usageDisplay').innerHTML = `
+                <strong>Today:</strong> ${usageData.requestsToday}/${limits.daily} requests<br>
+                <strong>Total:</strong> ${usageData.totalRequests}/${limits.total === Infinity ? '∞' : limits.total} requests
+            `;
+        });
+        
+        document.getElementById('upgradeBtn').onclick = () => {
+            // TODO: Implement upgrade flow
+            this.showError('Upgrade functionality coming soon!');
+        };
+        
+        document.getElementById('settingsClose').onclick = () => {
+            document.body.removeChild(modal);
+        };
     }
     
     isSupportedMeetingPlatform(url) {
@@ -221,26 +426,38 @@ class MeetingMindPopup {
     }
     
     showError(message) {
-        // Simple error display - could be enhanced with better UI
-        const errorDiv = document.createElement('div');
-        errorDiv.style.cssText = `
+        this.showNotification(message, 'error');
+    }
+
+    showSuccess(message) {
+        this.showNotification(message, 'success');
+    }
+
+    showNotification(message, type) {
+        const colors = {
+            error: { bg: '#fee2e2', text: '#dc2626' },
+            success: { bg: '#d1fae5', text: '#059669' }
+        };
+
+        const notificationDiv = document.createElement('div');
+        notificationDiv.style.cssText = `
             position: fixed;
             top: 10px;
             left: 10px;
             right: 10px;
-            background: #fee2e2;
-            color: #dc2626;
+            background: ${colors[type].bg};
+            color: ${colors[type].text};
             padding: 8px;
             border-radius: 6px;
             font-size: 12px;
             z-index: 1000;
         `;
-        errorDiv.textContent = message;
-        document.body.appendChild(errorDiv);
+        notificationDiv.textContent = message;
+        document.body.appendChild(notificationDiv);
         
         setTimeout(() => {
-            if (document.body.contains(errorDiv)) {
-                document.body.removeChild(errorDiv);
+            if (document.body.contains(notificationDiv)) {
+                document.body.removeChild(notificationDiv);
             }
         }, 5000);
     }
