@@ -12,10 +12,16 @@ Chrome extension for real-time meeting transcription with speaker identification
 4. Select the project folder
 5. The extension should now appear in your extensions list
 
+### API Key Setup (Required)
+
+1. Get a Fireworks API key from https://fireworks.ai
+2. Click the MeetingMind extension icon
+3. Click "Settings" at the bottom
+4. Enter your API key and click "Save API Key"
+
 ### Testing the Extension
 
 1. Navigate to a supported meeting platform:
-
    - Google Meet: https://meet.google.com/
    - Zoom: https://zoom.us/
    - Microsoft Teams: https://teams.microsoft.com/

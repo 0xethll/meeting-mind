@@ -45,8 +45,42 @@ class MeetingMindPopup {
                 'usageData',
             ])
 
-            if (data.isRecording) {
-                this.updateUIState('recording')
+            // Check actual recording status from background script
+            try {
+                const backgroundStatus = await chrome.runtime.sendMessage({
+                    action: 'getRecordingStatus'
+                })
+                
+                console.log('Background recording status:', backgroundStatus)
+                
+                if (backgroundStatus && backgroundStatus.isRecording) {
+                    this.isRecording = true
+                    this.updateUIState('recording')
+                    await chrome.storage.local.set({ isRecording: true })
+                } else {
+                    this.isRecording = false
+                    this.updateUIState('ready')
+                    await chrome.storage.local.set({ isRecording: false })
+                }
+            } catch (statusError) {
+                console.warn('Could not get background status, using stored state:', statusError)
+                
+                // Show connection error if it's a communication issue
+                if (statusError.message && (
+                    statusError.message.includes('Could not establish connection') ||
+                    statusError.message.includes('Receiving end does not exist')
+                )) {
+                    this.showError('Extension not loaded properly. Please reload the extension.')
+                }
+                
+                // Fallback to stored state
+                if (data.isRecording) {
+                    this.isRecording = true
+                    this.updateUIState('recording')
+                } else {
+                    this.isRecording = false
+                    this.updateUIState('ready')
+                }
             }
 
             if (data.transcript && data.transcript.length > 0) {
@@ -71,10 +105,19 @@ class MeetingMindPopup {
                 currentWindow: true,
             })
 
+            console.log('Current tab:', tab.url)
+
             if (!this.isSupportedMeetingPlatform(tab.url)) {
                 this.showError(
                     'Please navigate to Google Meet, Zoom, or Teams to start recording',
                 )
+                return
+            }
+
+            // Check if API key is configured
+            const storage = await chrome.storage.local.get(['fireworksApiKey'])
+            if (!storage.fireworksApiKey || storage.fireworksApiKey === 'YOUR_API_KEY_HERE') {
+                this.showError('Please configure your Fireworks API key in Settings first.')
                 return
             }
 
@@ -92,27 +135,52 @@ class MeetingMindPopup {
 
             this.updateUIState('processing')
 
+            // Test background script connection first
+            try {
+                console.log('Testing background script connection...')
+                const testResponse = await chrome.runtime.sendMessage({
+                    action: 'getRecordingStatus'
+                })
+                console.log('Background script responding:', testResponse)
+            } catch (connectionError) {
+                console.error('Background script connection failed:', connectionError)
+                this.updateUIState('ready')
+                this.showError('Extension error: Please reload the extension and try again.')
+                return
+            }
+
             // Send message to background script to start recording
+            console.log('Sending start recording message...')
             const response = await chrome.runtime.sendMessage({
                 action: 'startRecording',
                 tabId: tab.id,
             })
 
-            if (response.success) {
+            console.log('Start recording response:', response)
+
+            if (response && response.success) {
                 this.isRecording = true
                 this.updateUIState('recording')
                 await chrome.storage.local.set({ isRecording: true })
             } else {
                 this.updateUIState('ready')
                 this.showError(
-                    response.error ||
+                    (response && response.error) ||
                         'Failed to start recording. Please ensure you have clicked in the meeting tab first.',
                 )
             }
         } catch (error) {
             console.error('Error starting recording:', error)
             this.updateUIState('ready')
-            this.showError('Failed to start recording. Please try again.')
+            
+            // Provide specific error messages
+            if (error.message.includes('Could not establish connection')) {
+                this.showError('Extension connection error. Please reload the extension (chrome://extensions/) and try again.')
+            } else if (error.message.includes('Receiving end does not exist')) {
+                this.showError('Background script not responding. Please reload the extension and try again.')
+            } else {
+                this.showError('Failed to start recording: ' + error.message)
+            }
         }
     }
 
@@ -126,12 +194,21 @@ class MeetingMindPopup {
                 this.isRecording = false
                 this.updateUIState('ready')
                 await chrome.storage.local.set({ isRecording: false })
+                this.showSuccess('Recording stopped successfully')
             } else {
                 this.showError(response.error || 'Failed to stop recording')
+                // Force state reset if stop fails
+                this.isRecording = false
+                this.updateUIState('ready')
+                await chrome.storage.local.set({ isRecording: false })
             }
         } catch (error) {
             console.error('Error stopping recording:', error)
             this.showError('Failed to stop recording')
+            // Force state reset on error
+            this.isRecording = false
+            this.updateUIState('ready')
+            await chrome.storage.local.set({ isRecording: false })
         }
     }
 
@@ -162,6 +239,13 @@ class MeetingMindPopup {
         switch (message.action) {
             case 'transcriptionUpdate':
                 this.addTranscriptLine(message.data)
+                // Briefly flash the status to show transcription activity
+                this.statusText.textContent = 'Transcribing...'
+                this.statusDot.className = 'status-dot processing'
+                setTimeout(() => {
+                    this.statusText.textContent = 'Recording...'
+                    this.statusDot.className = 'status-dot recording'
+                }, 1000)
                 break
             case 'recordingStatus':
                 this.updateUIState(message.status)
@@ -393,7 +477,18 @@ class MeetingMindPopup {
         `
 
         dialog.innerHTML = `
-            <h3>Usage & Settings</h3>
+            <h3>Settings</h3>
+            <div style="margin: 15px 0;">
+                <h4>API Configuration</h4>
+                <label style="display: block; font-size: 12px; color: #666; margin-bottom: 5px;">
+                    Fireworks API Key (required for transcription):
+                </label>
+                <input type="password" id="apiKeyInput" placeholder="Enter your Fireworks API key" style="width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px; margin-bottom: 8px;">
+                <button id="saveApiKey" style="width: 100%; padding: 6px; background: #3b82f6; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">Save API Key</button>
+                <p style="font-size: 10px; color: #666; margin-top: 5px;">
+                    Get your API key from <a href="https://fireworks.ai" target="_blank" style="color: #3b82f6;">fireworks.ai</a>
+                </p>
+            </div>
             <div style="margin: 15px 0;">
                 <h4>Current Plan: Free</h4>
                 <p style="font-size: 12px; color: #666;">
@@ -405,16 +500,6 @@ class MeetingMindPopup {
                     Loading usage data...
                 </div>
             </div>
-            <div style="margin: 15px 0;">
-                <h4>Upgrade to Premium</h4>
-                <p style="font-size: 12px; color: #666;">
-                    • Unlimited transcriptions<br>
-                    • Advanced speaker diarization<br>
-                    • Meeting summaries<br>
-                    • Priority support
-                </p>
-                <button id="upgradeBtn" style="width: 100%; padding: 8px; background: #059669; color: white; border: none; border-radius: 4px; cursor: pointer; margin-top: 5px;">Upgrade to Premium - $15/month</button>
-            </div>
             <div style="margin-top: 20px;">
                 <button id="settingsClose" style="padding: 8px 16px; background: #6b7280; color: white; border: none; border-radius: 4px; cursor: pointer;">Close</button>
             </div>
@@ -423,8 +508,15 @@ class MeetingMindPopup {
         modal.appendChild(dialog)
         document.body.appendChild(modal)
 
-        // Load and display current usage
-        chrome.storage.local.get(['usageData', 'userPlan']).then((data) => {
+        // Load and display current API key status and usage
+        chrome.storage.local.get(['usageData', 'userPlan', 'fireworksApiKey']).then((data) => {
+            // Show masked API key if exists
+            if (data.fireworksApiKey && data.fireworksApiKey !== 'YOUR_API_KEY_HERE') {
+                const apiKeyInput = document.getElementById('apiKeyInput')
+                apiKeyInput.placeholder = 'API key configured ✓'
+                apiKeyInput.style.borderColor = '#059669'
+            }
+
             const usageData = data.usageData || {
                 requestsToday: 0,
                 totalRequests: 0,
@@ -445,9 +537,23 @@ class MeetingMindPopup {
             `
         })
 
-        document.getElementById('upgradeBtn').onclick = () => {
-            // TODO: Implement upgrade flow
-            this.showError('Upgrade functionality coming soon!')
+        // Save API key handler
+        document.getElementById('saveApiKey').onclick = async () => {
+            const apiKey = document.getElementById('apiKeyInput').value.trim()
+            if (!apiKey) {
+                this.showError('Please enter a valid API key')
+                return
+            }
+            
+            try {
+                await chrome.storage.local.set({ fireworksApiKey: apiKey })
+                this.showSuccess('API key saved successfully!')
+                document.getElementById('apiKeyInput').placeholder = 'API key configured ✓'
+                document.getElementById('apiKeyInput').value = ''
+                document.getElementById('apiKeyInput').style.borderColor = '#059669'
+            } catch (error) {
+                this.showError('Failed to save API key: ' + error.message)
+            }
         }
 
         document.getElementById('settingsClose').onclick = () => {

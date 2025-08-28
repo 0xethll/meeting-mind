@@ -62,10 +62,6 @@ function initializeTeams() {
     // TODO: Add Teams specific functionality
 }
 
-// Global variables for audio recording
-let mediaRecorder = null
-let recordedChunks = []
-
 // Listen for messages from background script
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     console.log('Content script received message:', message)
@@ -77,129 +73,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 platform: detectMeetingPlatform(),
             })
             break
-        case 'initializeAudioCapture':
-            initializeAudioCapture(message.streamId)
-                .then(() => sendResponse({ success: true }))
-                .catch((error) =>
-                    sendResponse({ success: false, error: error.message }),
-                )
-            return true // Keep message channel open
-        case 'stopAudioCapture':
-            stopAudioCapture()
-                .then(() => sendResponse({ success: true }))
-                .catch((error) =>
-                    sendResponse({ success: false, error: error.message }),
-                )
-            return true
         default:
             sendResponse({ success: false, error: 'Unknown action' })
     }
 })
-
-async function initializeAudioCapture(streamId) {
-    try {
-        // Get media stream using the stream ID with modern constraints
-        const constraints = {
-            audio: {
-                chromeMediaSource: 'tab',
-                chromeMediaSourceId: streamId
-            }
-        }
-
-        console.log('Requesting media stream with constraints:', constraints)
-        const stream = await navigator.mediaDevices.getUserMedia(constraints)
-
-        if (!stream || !stream.getAudioTracks().length) {
-            throw new Error('No audio track found in stream')
-        }
-
-        console.log('Audio stream obtained, tracks:', stream.getAudioTracks().length)
-
-        // Check if MediaRecorder is supported with the desired format
-        let mimeType = 'audio/webm;codecs=opus'
-        if (!MediaRecorder.isTypeSupported(mimeType)) {
-            mimeType = 'audio/webm'
-            if (!MediaRecorder.isTypeSupported(mimeType)) {
-                throw new Error('Browser does not support audio recording')
-            }
-        }
-
-        // Initialize MediaRecorder
-        recordedChunks = []
-        mediaRecorder = new MediaRecorder(stream, {
-            mimeType: mimeType,
-        })
-
-        mediaRecorder.ondataavailable = (event) => {
-            if (event.data.size > 0) {
-                recordedChunks.push(event.data)
-
-                // Send audio chunk to background for processing
-                chrome.runtime.sendMessage({
-                    action: 'audioChunk',
-                    chunk: event.data,
-                })
-            }
-        }
-
-        mediaRecorder.onerror = (event) => {
-            console.error('MediaRecorder error:', event)
-            chrome.runtime.sendMessage({
-                action: 'error',
-                error: 'Audio recording error: ' + event.error
-            })
-        }
-
-        mediaRecorder.onstop = () => {
-            console.log('MediaRecorder stopped')
-            // Stop all stream tracks
-            stream.getTracks().forEach(track => track.stop())
-        }
-
-        // Start recording with 1-second chunks for real-time processing
-        mediaRecorder.start(1000)
-
-        console.log('Audio capture started successfully with mime type:', mimeType)
-    } catch (error) {
-        console.error('Error initializing audio capture:', error)
-        
-        // Send specific error message based on error type
-        let errorMessage = 'Failed to start audio capture'
-        if (error.name === 'NotAllowedError') {
-            errorMessage = 'Microphone permission denied. Please allow microphone access.'
-        } else if (error.name === 'NotFoundError') {
-            errorMessage = 'No microphone found. Please check your audio device.'
-        } else if (error.name === 'NotSupportedError') {
-            errorMessage = 'Audio recording not supported in this browser.'
-        }
-        
-        chrome.runtime.sendMessage({
-            action: 'error',
-            error: errorMessage
-        })
-        
-        throw new Error(errorMessage)
-    }
-}
-
-async function stopAudioCapture() {
-    try {
-        if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-            mediaRecorder.stop()
-
-            // Stop all tracks in the stream
-            mediaRecorder.stream.getTracks().forEach((track) => track.stop())
-
-            console.log('Audio capture stopped')
-        }
-
-        mediaRecorder = null
-        recordedChunks = []
-    } catch (error) {
-        console.error('Error stopping audio capture:', error)
-        throw error
-    }
-}
 
 function checkIfInMeeting() {
     // Basic check - can be enhanced per platform

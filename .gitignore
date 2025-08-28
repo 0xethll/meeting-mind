@@ -1,1 +1,18 @@
 .DS_Store
+
+# Security - never commit these
+config.js
+*.key
+api-keys.json
+
+# Node modules and dependencies
+node_modules/
+npm-debug.log*
+
+# Chrome extension packaging
+*.crx
+*.pem
+
+# Development files
+.vscode/
+*.log

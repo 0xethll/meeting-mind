@@ -3,16 +3,126 @@ console.log('MeetingMind service worker loaded')
 
 // Global variables for recording state
 let currentRecordingTabId = null
-let audioChunks = []
+let audioChunkCount = 0
+let processingAudio = false
+let lastChunkTime = null
+let processTimeout = null
 
 // Extension installation/update handler
-chrome.runtime.onInstalled.addListener((details) => {
-    console.log('MeetingMind extension installed/updated:', details.reason)
+chrome.runtime.onInstalled.addListener(async (details) => {
+    console.log('MeetingMind extension installed/updated:', details.reason);
+    
+    // Clean up any existing capture state on startup
+    try {
+        await cleanupExistingCapture();
+        console.log('Initial cleanup completed');
+    } catch (cleanupError) {
+        console.warn('Initial cleanup failed:', cleanupError);
+    }
 })
+
+// Also cleanup when service worker starts
+chrome.runtime.onStartup.addListener(async () => {
+    console.log('MeetingMind service worker started');
+    try {
+        await cleanupExistingCapture();
+        console.log('Startup cleanup completed');
+    } catch (cleanupError) {
+        console.warn('Startup cleanup failed:', cleanupError);
+    }
+})
+
+// Cleanup functions for managing capture state
+async function cleanupExistingCapture() {
+    console.log('Cleaning up existing capture state...');
+    
+    // Reset internal state
+    if (processTimeout) {
+        clearTimeout(processTimeout);
+        processTimeout = null;
+    }
+    
+    // Stop recording in offscreen document if it exists
+    try {
+        const response = await chrome.runtime.sendMessage({
+            type: 'stop-recording',
+            target: 'offscreen'
+        });
+        console.log('Stopped offscreen recording:', response);
+    } catch (offscreenError) {
+        console.log('Offscreen document not available for cleanup:', offscreenError.message);
+    }
+
+    // Reset state variables but keep currentRecordingTabId for now
+    audioChunkCount = 0;
+    processingAudio = false;
+    lastChunkTime = null;
+    // Note: currentRecordingTabId will be reset only in handleStopRecording
+}
+
+async function forceCleanupCapture(tabId) {
+    console.log('Force cleanup capture for tab:', tabId);
+    
+    // Try to close any existing offscreen document and recreate it
+    try {
+        if ('getContexts' in chrome.runtime) {
+            const existingContexts = await chrome.runtime.getContexts({
+                contextTypes: ['OFFSCREEN_DOCUMENT']
+            });
+
+            if (existingContexts.length > 0) {
+                console.log('Closing existing offscreen document...');
+                await chrome.offscreen.closeDocument();
+                // Wait for document to close
+                await new Promise(resolve => setTimeout(resolve, 500));
+            }
+        }
+    } catch (closeError) {
+        console.warn('Could not close offscreen document:', closeError);
+    }
+
+    // Reset the creating promise
+    creating = null;
+}
+
+// Setup offscreen document for Chrome 116+ audio capture
+let creating; // Global promise to avoid concurrency issues
+async function setupOffscreenDocument() {
+    const offscreenUrl = chrome.runtime.getURL('offscreen.html');
+    
+    // Check if offscreen document already exists
+    if ('getContexts' in chrome.runtime) {
+        const existingContexts = await chrome.runtime.getContexts({
+            contextTypes: ['OFFSCREEN_DOCUMENT'],
+            documentUrls: [offscreenUrl]
+        });
+
+        if (existingContexts.length > 0) {
+            console.log('Offscreen document already exists');
+            return;
+        }
+    }
+
+    // Create offscreen document if it doesn't exist
+    if (creating) {
+        await creating;
+    } else {
+        console.log('Creating offscreen document...');
+        creating = chrome.offscreen.createDocument({
+            url: 'offscreen.html',
+            reasons: ['USER_MEDIA'],
+            justification: 'Recording audio from meeting tabs for transcription'
+        });
+        await creating;
+        creating = null;
+        console.log('Offscreen document created successfully');
+    }
+}
 
 // Handle messages from popup and content scripts
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     console.log('Background received message:', message)
+    console.log('Current recording tab ID:', currentRecordingTabId)
 
     switch (message.action) {
         case 'startRecording':
@@ -31,8 +141,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
                 )
             return true
 
-        case 'audioChunk':
-            handleAudioChunk(message.chunk, sender.tab.id)
+        case 'audioChunkReady':
+            // Message comes from offscreen document, not tab, so use currentRecordingTabId
+            if (currentRecordingTabId !== null) {
+                handleAudioChunkReady(message, currentRecordingTabId)
+            } else {
+                console.warn('Received audioChunkReady but no active recording tab')
+            }
+            break
+
+        case 'getRecordingStatus':
+            sendResponse({
+                isRecording: currentRecordingTabId !== null,
+                tabId: currentRecordingTabId,
+            })
             break
 
         default:
@@ -42,74 +164,251 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 async function handleStartRecording(tabId) {
     try {
-        // Get media stream ID for Manifest V3
-        const streamId = await chrome.tabCapture.getMediaStreamId({
-            consumerTabId: tabId,
-        })
-
-        if (!streamId) {
-            throw new Error('Failed to get media stream ID')
+        // Check if already recording
+        if (currentRecordingTabId !== null) {
+            console.log('Recording already active on tab:', currentRecordingTabId);
+            if (currentRecordingTabId === tabId) {
+                throw new Error('Recording is already active on this tab');
+            } else {
+                throw new Error(`Recording is already active on another tab (${currentRecordingTabId}). Please stop the current recording first.`);
+            }
         }
 
-        // Initialize recording state
-        currentRecordingTabId = tabId
-        audioChunks = []
+        // Stop any existing recordings first (but don't reset currentRecordingTabId yet)
+        if (currentRecordingTabId !== null && currentRecordingTabId !== tabId) {
+            console.log('Stopping previous recording on tab:', currentRecordingTabId);
+            await cleanupExistingCapture();
+        }
 
-        // Send stream ID to content script for audio capture
-        await chrome.tabs.sendMessage(tabId, {
-            action: 'initializeAudioCapture',
-            streamId: streamId,
-        })
+        // Check if tab is already being captured
+        try {
+            const capturedTabs = await chrome.tabCapture.getCapturedTabs();
+            const isTabCaptured = capturedTabs.some(info => 
+                info.tabId === tabId && 
+                (info.status === 'active' || info.status === 'pending')
+            );
+            
+            if (isTabCaptured) {
+                console.log('Tab is already being captured, attempting cleanup...');
+                await forceCleanupCapture(tabId);
+                // Wait a moment for cleanup to complete
+                await new Promise(resolve => setTimeout(resolve, 1000));
+            }
+        } catch (captureCheckError) {
+            console.warn('Could not check capture status:', captureCheckError);
+        }
 
-        console.log('Audio capture initialized for tab:', tabId)
+        // Ensure offscreen document exists
+        await setupOffscreenDocument();
+        
+        // Test communication with offscreen document
+        console.log('Testing communication with offscreen document...');
+        try {
+            const testResponse = await Promise.race([
+                chrome.runtime.sendMessage({
+                    type: 'test-ping',
+                    target: 'offscreen'
+                }),
+                new Promise((_, reject) => 
+                    setTimeout(() => reject(new Error('Communication test timeout')), 5000)
+                )
+            ]);
+            console.log('Offscreen document test response:', testResponse);
+            
+            if (!testResponse || !testResponse.success) {
+                throw new Error('Offscreen document test failed: ' + (testResponse?.error || 'No response'));
+            }
+        } catch (testError) {
+            console.error('Offscreen document communication test failed:', testError);
+            
+            // Try to recreate the offscreen document
+            try {
+                console.log('Attempting to recreate offscreen document...');
+                await forceCleanupCapture(tabId);
+                await setupOffscreenDocument();
+                
+                // Test again
+                const retestResponse = await chrome.runtime.sendMessage({
+                    type: 'test-ping',
+                    target: 'offscreen'
+                });
+                console.log('Offscreen document retest response:', retestResponse);
+            } catch (recreateError) {
+                console.error('Failed to recreate offscreen document:', recreateError);
+                throw new Error('Cannot establish communication with offscreen document. Try reloading the extension.');
+            }
+        }
 
-        return { success: true }
+        // Get media stream ID for the target tab
+        const streamId = await chrome.tabCapture.getMediaStreamId({
+            targetTabId: tabId,
+        });
+
+        if (!streamId) {
+            throw new Error('Failed to get media stream ID');
+        }
+
+        console.log('Got stream ID:', streamId, 'for tab:', tabId);
+
+        // Initialize recording state BEFORE starting recording
+        currentRecordingTabId = tabId;
+        audioChunkCount = 0;
+        processingAudio = false;
+        lastChunkTime = null;
+        if (processTimeout) {
+            clearTimeout(processTimeout);
+            processTimeout = null;
+        }
+        
+        console.log('Set currentRecordingTabId to:', currentRecordingTabId);
+
+        // Send stream ID to offscreen document for audio capture
+        console.log('Sending start-recording message to offscreen document...');
+        let response;
+        try {
+            response = await chrome.runtime.sendMessage({
+                type: 'start-recording',
+                target: 'offscreen',
+                data: streamId
+            });
+            console.log('Received response from offscreen document:', response);
+        } catch (messageError) {
+            console.error('Failed to send message to offscreen document:', messageError);
+            throw new Error('Cannot communicate with offscreen document: ' + messageError.message);
+        }
+
+        if (!response) {
+            throw new Error('No response received from offscreen document. The document may not be loaded properly.');
+        }
+
+        if (!response.success) {
+            const errorMsg = response.error || 'Unknown error from offscreen document';
+            console.error('Offscreen document returned error:', errorMsg);
+            throw new Error('Failed to start recording in offscreen document: ' + errorMsg);
+        }
+
+        console.log('Audio capture started successfully for tab:', tabId);
+
+        return { success: true };
     } catch (error) {
-        console.error('Error starting recording:', error)
-        throw error
+        console.error('Error starting recording:', error);
+        
+        // Attempt cleanup on error
+        try {
+            await cleanupExistingCapture();
+        } catch (cleanupError) {
+            console.warn('Cleanup after error failed:', cleanupError);
+        }
+        
+        // Provide user-friendly error messages
+        if (error.message.includes('Cannot capture a tab with an active stream')) {
+            throw new Error('Another recording session is active. Please refresh the meeting tab and try again.');
+        }
+        
+        throw error;
     }
 }
 
 async function handleStopRecording() {
     try {
-        if (!currentRecordingTabId) {
-            throw new Error('No active recording found')
+        // Send stop message to offscreen document
+        try {
+            const response = await chrome.runtime.sendMessage({
+                type: 'stop-recording',
+                target: 'offscreen'
+            });
+
+            if (!response || !response.success) {
+                console.warn('Failed to stop recording in offscreen document:', response?.error);
+            }
+        } catch (messageError) {
+            console.warn('Could not send stop message to offscreen document:', messageError);
+            // Continue with cleanup even if offscreen document communication fails
         }
 
-        // Send stop message to content script
-        await chrome.tabs.sendMessage(currentRecordingTabId, {
-            action: 'stopAudioCapture',
-        })
-
-        console.log('Recording stopped for tab:', currentRecordingTabId)
+        console.log('Recording stopped for tab:', currentRecordingTabId);
 
         // Reset recording state
-        currentRecordingTabId = null
-        audioChunks = []
+        currentRecordingTabId = null;
+        audioChunkCount = 0;
+        processingAudio = false;
+        lastChunkTime = null;
+        if (processTimeout) {
+            clearTimeout(processTimeout);
+            processTimeout = null;
+        }
 
-        return { success: true }
+        return { success: true };
     } catch (error) {
-        console.error('Error stopping recording:', error)
-        throw error
+        console.error('Error stopping recording:', error);
+        throw error;
     }
 }
 
-function handleAudioChunk(chunk, tabId) {
+function handleAudioChunkReady(message, tabId) {
+    console.log('handleAudioChunkReady called with tabId:', tabId, 'currentRecordingTabId:', currentRecordingTabId);
+    
     if (tabId !== currentRecordingTabId) {
+        console.log('Ignoring chunk - tab mismatch');
         return // Ignore chunks from non-recording tabs
     }
 
-    audioChunks.push(chunk)
+    audioChunkCount++
+    lastChunkTime = Date.now()
 
-    // Process audio chunks in batches for transcription
-    if (audioChunks.length >= 5) {
-        // Process every 5 seconds of audio
-        processAudioBatch()
+    console.log(
+        '🎙️ NEW AUDIO CHUNK:',
+        message.size,
+        'bytes, type:',
+        message.mimeType,
+        'total chunks:',
+        audioChunkCount,
+    )
+
+    // Clear any existing timeout
+    if (processTimeout) {
+        clearTimeout(processTimeout)
+        processTimeout = null
+    }
+
+    // DIFFERENTIAL PROCESSING - Process only new audio chunks to prevent duplicates
+    if (!processingAudio) {
+        console.log(
+            '*** TRIGGERING DIFFERENTIAL PROCESSING for new chunks',
+            audioChunkCount,
+            '***',
+        )
+        processAudioBatch(tabId)
+    } else {
+        console.log(
+            'Already processing - will queue this chunk for next batch:',
+            audioChunkCount,
+        )
+        // Queue processing for next available slot
     }
 }
 
-async function processAudioBatch() {
-    if (audioChunks.length === 0) return
+async function processAudioBatch(tabId) {
+    console.log('=== ENTERING processAudioBatch ===')
+    console.log(
+        'audioChunkCount:',
+        audioChunkCount,
+        'processingAudio:',
+        processingAudio,
+        'tabId:',
+        tabId,
+    )
+
+    if (audioChunkCount === 0 || processingAudio) {
+        console.log('=== EARLY RETURN from processAudioBatch ===', {
+            audioChunkCount,
+            processingAudio,
+        })
+        return
+    }
+
+    processingAudio = true
+    console.log('=== SET processingAudio = true ===')
 
     try {
         // Check usage limits first
@@ -122,12 +421,82 @@ async function processAudioBatch() {
             return
         }
 
-        // Combine audio chunks into a single blob
-        const audioBlob = new Blob(audioChunks, { type: 'audio/webm' })
-        audioChunks = [] // Clear processed chunks
+        console.log('Requesting audio data from offscreen document...')
+
+        // Request audio data from offscreen document
+        let audioResponse
+        try {
+            audioResponse = await chrome.runtime.sendMessage({
+                type: 'get-audio-data',
+                target: 'offscreen'
+            });
+
+            if (!audioResponse) {
+                throw new Error('Offscreen document did not respond to get-audio-data message');
+            }
+
+            if (!audioResponse.success) {
+                throw new Error(audioResponse.error || 'Failed to get audio data');
+            }
+        } catch (messageError) {
+            console.error('Error communicating with offscreen document:', messageError);
+            throw new Error(`Offscreen document communication failed: ${messageError.message}`);
+        }
+
+        console.log(
+            'Received audio data:',
+            audioResponse.size,
+            'bytes, type:',
+            audioResponse.mimeType,
+        )
+
+        // Convert base64 back to blob with proper handling
+        try {
+            const binaryString = atob(audioResponse.audioData)
+            const bytes = new Uint8Array(binaryString.length)
+            for (let i = 0; i < binaryString.length; i++) {
+                bytes[i] = binaryString.charCodeAt(i)
+            }
+
+            const audioBlob = new Blob([bytes], {
+                type: audioResponse.mimeType,
+            })
+
+            console.log(
+                'Created audio blob:',
+                audioBlob.size,
+                'bytes, type:',
+                audioBlob.type,
+            )
+            console.log(
+                'First 32 bytes as hex:',
+                Array.from(bytes.slice(0, 32))
+                    .map((b) => b.toString(16).padStart(2, '0'))
+                    .join(' '),
+            )
+
+            // For instant processing, allow smaller audio chunks but warn if too small
+            if (audioBlob.size < 500) {
+                console.warn(`Small audio chunk: ${audioBlob.size} bytes - may not transcribe well`);
+                // Don't throw error for instant processing - allow small chunks through
+            }
+
+            // Use the reconstructed blob for transcription
+            var finalAudioBlob = audioBlob
+        } catch (conversionError) {
+            console.error('Error converting base64 to blob:', conversionError)
+            throw conversionError
+        }
+
+        // Reset chunk count and clear timeout
+        audioChunkCount = 0
+        if (processTimeout) {
+            clearTimeout(processTimeout)
+            processTimeout = null
+        }
 
         // Use managed API key approach
-        const transcription = await transcribeAudio(audioBlob)
+        const transcription = await transcribeAudio(finalAudioBlob)
 
         if (transcription.text && transcription.text.trim()) {
             console.log('Transcription:', transcription.text)
@@ -152,21 +521,60 @@ async function processAudioBatch() {
             action: 'error',
             error: 'Transcription failed: ' + error.message,
         })
+    } finally {
+        processingAudio = false
     }
 }
 
 async function transcribeAudio(audioBlob) {
-    // For MVP: Use hardcoded API key with usage limits
-    // TODO: Replace with backend proxy service in production
-    const MANAGED_API_KEY = 'fw_' // Replace with your key
+    // Get API key from storage (user must set this first)
+    const storage = await chrome.storage.local.get(['fireworksApiKey'])
+    const MANAGED_API_KEY = storage.fireworksApiKey
+    
+    if (!MANAGED_API_KEY || MANAGED_API_KEY === 'YOUR_API_KEY_HERE') {
+        throw new Error('API key not configured. Please set your Fireworks API key in extension settings.')
+    }
+
+    console.log('Preparing audio for transcription:', {
+        size: audioBlob.size,
+        type: audioBlob.type,
+        constructor: audioBlob.constructor.name,
+    })
+
+    // Verify we have a valid audio blob
+    if (audioBlob.size === 0) {
+        throw new Error('Audio blob is empty')
+    }
 
     const formData = new FormData()
-    formData.append('file', audioBlob, 'audio.webm')
+
+    // Create a proper file with the correct filename extension
+    // Fireworks supports: flac, m4a, mp3, mp4, mpeg, mpga, oga, ogg, wav, webm
+    let filename = 'audio.wav' // Default to WAV for better transcription
+    if (audioBlob.type.includes('wav')) {
+        filename = 'audio.wav'
+    } else if (audioBlob.type.includes('webm')) {
+        filename = 'audio.webm'
+    } else if (audioBlob.type.includes('ogg')) {
+        filename = 'audio.ogg'
+    } else if (audioBlob.type.includes('mp3')) {
+        filename = 'audio.mp3'
+    }
+    
+    console.log('Audio format for transcription:', filename, 'MIME type:', audioBlob.type);
+
+    formData.append('file', audioBlob, filename)
     formData.append('model', 'whisper-v3-turbo')
     formData.append('temperature', '0')
     formData.append('vad_model', 'silero')
+    formData.append('response_format', 'json')
 
-    console.log('Sending audio to Fireworks Whisper...')
+    console.log(
+        'Sending audio to Fireworks Whisper:',
+        filename,
+        audioBlob.size,
+        'bytes',
+    )
 
     const response = await fetch(
         'https://audio-turbo.us-virginia-1.direct.fireworks.ai/v1/audio/transcriptions',
@@ -180,6 +588,29 @@ async function transcribeAudio(audioBlob) {
     )
 
     if (!response.ok) {
+        console.error('Fireworks API error details:', {
+            status: response.status,
+            statusText: response.statusText,
+            url: response.url,
+            headers: Object.fromEntries(response.headers.entries()),
+            type: response.type,
+            redirected: response.redirected,
+        })
+
+        // Try to get error response body if available
+        let errorText = '';
+        try {
+            errorText = await response.text()
+            console.error('Error response body:', errorText)
+            
+            // Check for WebM fragment error
+            if (errorText.includes('Could not transcode audio') && audioBlob.type.includes('webm')) {
+                throw new Error('WebM audio chunk is invalid (fragment without header). The extension will now use header prepending for subsequent chunks.');
+            }
+        } catch (bodyError) {
+            console.error('Could not read error response body:', bodyError)
+        }
+
         throw new Error(
             `Fireworks API error: ${response.status} ${response.statusText}`,
         )
