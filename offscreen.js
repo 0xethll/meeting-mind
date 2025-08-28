@@ -196,7 +196,7 @@ async function handleStartRecording(streamId) {
         mediaRecorder.start()
         isRecording = true
 
-        // Request data every 2 seconds for faster transcription
+        // Request data every 4 seconds for faster transcription
         const dataRequestInterval = setInterval(() => {
             if (mediaRecorder && mediaRecorder.state === 'recording') {
                 mediaRecorder.requestData()
@@ -204,7 +204,7 @@ async function handleStartRecording(streamId) {
             } else {
                 clearInterval(dataRequestInterval)
             }
-        }, 2000) // Reduced from 5000 to 2000ms for instant processing
+        }, 4000)
 
         console.log('Recording started with mime type:', mimeType)
     } catch (error) {

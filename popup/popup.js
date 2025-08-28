@@ -42,7 +42,6 @@ class MeetingMindPopup {
             const data = await chrome.storage.local.get([
                 'isRecording',
                 'transcript',
-                'usageData',
             ])
 
             // Check actual recording status from background script
@@ -88,10 +87,6 @@ class MeetingMindPopup {
                 this.displayTranscript()
             }
 
-            // Load and display usage data
-            if (data.usageData) {
-                this.updateUsageDisplay(data.usageData)
-            }
         } catch (error) {
             console.error('Error loading stored data:', error)
         }
@@ -121,12 +116,6 @@ class MeetingMindPopup {
                 return
             }
 
-            // Check usage limits
-            const usageCheck = await this.checkUsageLimits()
-            if (!usageCheck.canProceed) {
-                this.showError(usageCheck.message)
-                return
-            }
 
             // Show consent message
             if (!(await this.getAudioConsent())) {
@@ -253,17 +242,12 @@ class MeetingMindPopup {
             case 'error':
                 this.showError(message.error)
                 break
-            case 'usageUpdate':
-                this.updateUsageDisplay(message.data)
-                break
         }
     }
 
     addTranscriptLine(data) {
         const transcriptLine = {
-            speaker: data.speaker || 'Speaker',
             text: data.text,
-            timestamp: new Date().toLocaleTimeString(),
         }
 
         this.transcript.push(transcriptLine)
@@ -278,20 +262,13 @@ class MeetingMindPopup {
             return
         }
 
-        const transcriptHTML = this.transcript
-            .map(
-                (line) => `
-            <div class="transcript-line">
-                <span class="speaker-label">${line.speaker}:</span>
-                <span class="timestamp">[${line.timestamp}]</span>
-                <br>
-                ${line.text}
-            </div>
-        `,
-            )
-            .join('')
+        // Join all transcript text and format with line breaks only on periods
+        const fullText = this.transcript
+            .map(line => line.text)
+            .join(' ')
+            .replace(/\.\s+/g, '.<br>')
 
-        this.transcriptContainer.innerHTML = transcriptHTML
+        this.transcriptContainer.innerHTML = `<div class="transcript-text">${fullText}</div>`
         this.transcriptContainer.scrollTop =
             this.transcriptContainer.scrollHeight
     }
@@ -321,8 +298,9 @@ class MeetingMindPopup {
         }
 
         const exportText = this.transcript
-            .map((line) => `[${line.timestamp}] ${line.speaker}: ${line.text}`)
-            .join('\n\n')
+            .map(line => line.text)
+            .join(' ')
+            .replace(/\.\s+/g, '.\n')
 
         const blob = new Blob([exportText], { type: 'text/plain' })
         const url = URL.createObjectURL(blob)
@@ -392,65 +370,7 @@ class MeetingMindPopup {
         })
     }
 
-    async checkUsageLimits() {
-        const storage = await chrome.storage.local.get([
-            'usageData',
-            'userPlan',
-        ])
-        const now = new Date()
-        const today = now.toDateString()
 
-        let usageData = storage.usageData || {
-            date: today,
-            requestsToday: 0,
-            totalRequests: 0,
-        }
-
-        if (usageData.date !== today) {
-            usageData = {
-                date: today,
-                requestsToday: 0,
-                totalRequests: usageData.totalRequests || 0,
-            }
-        }
-
-        const userPlan = storage.userPlan || 'free'
-        const limits = {
-            free: { daily: 50, total: 1000 },
-            premium: { daily: 1000, total: Infinity },
-        }
-
-        const limit = limits[userPlan]
-
-        if (usageData.requestsToday >= limit.daily) {
-            return {
-                canProceed: false,
-                message: `Daily limit reached (${limit.daily} requests). Upgrade to Premium for unlimited usage.`,
-            }
-        }
-
-        if (usageData.totalRequests >= limit.total) {
-            return {
-                canProceed: false,
-                message: `Free tier limit reached (${limit.total} total requests). Upgrade to Premium for unlimited usage.`,
-            }
-        }
-
-        return { canProceed: true }
-    }
-
-    updateUsageDisplay(usageData) {
-        const statusElement = document.getElementById('usageStatus')
-        if (statusElement) {
-            const userPlan = 'free' // TODO: Get from storage
-            const limits =
-                userPlan === 'free'
-                    ? { daily: 50, total: 1000 }
-                    : { daily: 1000, total: Infinity }
-
-            statusElement.textContent = `Usage: ${usageData.requestsToday}/${limits.daily} today, ${usageData.totalRequests}/${limits.total} total`
-        }
-    }
 
     openSettings() {
         const modal = document.createElement('div')
@@ -489,17 +409,6 @@ class MeetingMindPopup {
                     Get your API key from <a href="https://fireworks.ai" target="_blank" style="color: #3b82f6;">fireworks.ai</a>
                 </p>
             </div>
-            <div style="margin: 15px 0;">
-                <h4>Current Plan: Free</h4>
-                <p style="font-size: 12px; color: #666;">
-                    • 50 transcription requests per day<br>
-                    • 1,000 total requests<br>
-                    • Basic speaker identification
-                </p>
-                <div id="usageDisplay" style="margin: 10px 0; padding: 10px; background: #f3f4f6; border-radius: 4px;">
-                    Loading usage data...
-                </div>
-            </div>
             <div style="margin-top: 20px;">
                 <button id="settingsClose" style="padding: 8px 16px; background: #6b7280; color: white; border: none; border-radius: 4px; cursor: pointer;">Close</button>
             </div>
@@ -508,33 +417,14 @@ class MeetingMindPopup {
         modal.appendChild(dialog)
         document.body.appendChild(modal)
 
-        // Load and display current API key status and usage
-        chrome.storage.local.get(['usageData', 'userPlan', 'fireworksApiKey']).then((data) => {
+        // Load and display current API key status
+        chrome.storage.local.get(['fireworksApiKey']).then((data) => {
             // Show masked API key if exists
             if (data.fireworksApiKey && data.fireworksApiKey !== 'YOUR_API_KEY_HERE') {
                 const apiKeyInput = document.getElementById('apiKeyInput')
                 apiKeyInput.placeholder = 'API key configured ✓'
                 apiKeyInput.style.borderColor = '#059669'
             }
-
-            const usageData = data.usageData || {
-                requestsToday: 0,
-                totalRequests: 0,
-            }
-            const userPlan = data.userPlan || 'free'
-            const limits =
-                userPlan === 'free'
-                    ? { daily: 50, total: 1000 }
-                    : { daily: 1000, total: Infinity }
-
-            document.getElementById('usageDisplay').innerHTML = `
-                <strong>Today:</strong> ${usageData.requestsToday}/${
-                limits.daily
-            } requests<br>
-                <strong>Total:</strong> ${usageData.totalRequests}/${
-                limits.total === Infinity ? '∞' : limits.total
-            } requests
-            `
         })
 
         // Save API key handler

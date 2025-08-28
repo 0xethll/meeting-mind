@@ -411,15 +411,6 @@ async function processAudioBatch(tabId) {
     console.log('=== SET processingAudio = true ===')
 
     try {
-        // Check usage limits first
-        const usageData = await checkUsageLimits()
-        if (!usageData.canProceed) {
-            chrome.runtime.sendMessage({
-                action: 'error',
-                error: usageData.message,
-            })
-            return
-        }
 
         console.log('Requesting audio data from offscreen document...')
 
@@ -501,15 +492,12 @@ async function processAudioBatch(tabId) {
         if (transcription.text && transcription.text.trim()) {
             console.log('Transcription:', transcription.text)
 
-            // Update usage tracking
-            await updateUsageTracking()
 
             // Send transcription to popup
             chrome.runtime.sendMessage({
                 action: 'transcriptionUpdate',
                 data: {
                     text: transcription.text,
-                    speaker: 'Speaker', // Basic speaker - will enhance with diarization later
                 },
             })
         }
@@ -619,77 +607,3 @@ async function transcribeAudio(audioBlob) {
     return await response.json()
 }
 
-async function checkUsageLimits() {
-    const storage = await chrome.storage.local.get(['usageData', 'userPlan'])
-    const now = new Date()
-    const today = now.toDateString()
-
-    // Initialize usage data if not exists
-    let usageData = storage.usageData || {
-        date: today,
-        requestsToday: 0,
-        totalRequests: 0,
-    }
-
-    // Reset daily counter if new day
-    if (usageData.date !== today) {
-        usageData = {
-            date: today,
-            requestsToday: 0,
-            totalRequests: usageData.totalRequests || 0,
-        }
-    }
-
-    const userPlan = storage.userPlan || 'free'
-    const limits = {
-        free: { daily: 50, total: 1000 }, // 50 requests per day, 1000 total
-        premium: { daily: 1000, total: Infinity },
-    }
-
-    const limit = limits[userPlan]
-
-    // Check limits
-    if (usageData.requestsToday >= limit.daily) {
-        return {
-            canProceed: false,
-            message: `Daily limit reached (${limit.daily} requests). Upgrade to Premium for unlimited usage.`,
-        }
-    }
-
-    if (usageData.totalRequests >= limit.total) {
-        return {
-            canProceed: false,
-            message: `Free tier limit reached (${limit.total} total requests). Upgrade to Premium for unlimited usage.`,
-        }
-    }
-
-    return { canProceed: true }
-}
-
-async function updateUsageTracking() {
-    const storage = await chrome.storage.local.get(['usageData'])
-    const now = new Date()
-    const today = now.toDateString()
-
-    let usageData = storage.usageData || {
-        date: today,
-        requestsToday: 0,
-        totalRequests: 0,
-    }
-
-    if (usageData.date !== today) {
-        usageData.date = today
-        usageData.requestsToday = 0
-    }
-
-    usageData.requestsToday++
-    usageData.totalRequests++
-
-    await chrome.storage.local.set({ usageData })
-
-    // Send usage update to popup
-    chrome.runtime.sendMessage({
-        action: 'usageUpdate',
-        data: usageData,
-    })
-}
