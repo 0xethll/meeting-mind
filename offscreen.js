@@ -4,19 +4,18 @@ console.log('Current URL:', window.location.href)
 console.log('Chrome runtime available:', !!chrome.runtime)
 console.log('Navigator mediaDevices available:', !!navigator.mediaDevices)
 
-// Accumulation-based approach for proper WebM concatenation
+// RecordRTC-based audio recording with automatic chunking
 
 // Test message receiving capability
 window.addEventListener('load', () => {
     console.log('Offscreen document fully loaded and ready')
 })
 
-let mediaRecorder = null
+let recorder = null
 let recordedChunks = []
-let processedChunkCount = 0 // Track how many chunks have been processed
 let isRecording = false
 let currentStream = null
-let webmHeaderChunk = null
+let chunkInterval = null
 
 // Listen for messages from the background script
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -125,88 +124,67 @@ async function handleStartRecording(streamId) {
         const source = output.createMediaStreamSource(currentStream)
         source.connect(output.destination)
 
-        // Initialize MediaRecorder for capturing chunks - prefer WAV for transcription
-        let mimeType = 'audio/wav'
-        if (!MediaRecorder.isTypeSupported(mimeType)) {
-            // Fallback to WebM if WAV not supported
-            mimeType = 'audio/webm;codecs=opus'
-            if (!MediaRecorder.isTypeSupported(mimeType)) {
-                mimeType = 'audio/webm'
-                if (!MediaRecorder.isTypeSupported(mimeType)) {
-                    throw new Error('Browser does not support audio recording')
-                }
-            }
-        }
-
-        console.log('Selected audio format:', mimeType)
-
+        // Initialize RecordRTC for better audio handling
         recordedChunks = []
-        processedChunkCount = 0
-        webmHeaderChunk = null
-
-        mediaRecorder = new MediaRecorder(currentStream, {
-            mimeType: mimeType,
-        })
-
-        mediaRecorder.ondataavailable = async (event) => {
-            if (event.data.size > 0) {
-                if (!webmHeaderChunk) {
-                    webmHeaderChunk = event.data
-                    console.log(
-                        'WebM header chunk captured:',
-                        webmHeaderChunk.size,
-                        'bytes',
-                    )
-                }
-
-                // Store individual chunk for processing (no accumulation to avoid duplicates)
-                recordedChunks.push(event.data)
-
-                console.log(
-                    'Audio chunk received:',
-                    event.data.size,
-                    'bytes, type:',
-                    event.data.type,
-                )
-                console.log('Total chunks buffered:', recordedChunks.length)
-
-                // Notify background script that new chunk is ready
-                chrome.runtime.sendMessage({
-                    action: 'audioChunkReady',
-                    size: event.data.size,
-                    mimeType: event.data.type,
-                })
-            }
+        
+        // Configure RecordRTC options
+        const recordRTCOptions = {
+            type: 'audio',
+            recorderType: StereoAudioRecorder,
+            numberOfAudioChannels: 2,
+            checkForInactiveTracks: true,
+            bufferSize: 16384,
+            sampleRate: 48000,
+            mimeType: 'audio/wav' // WAV format for better transcription compatibility
         }
 
-        mediaRecorder.onerror = (event) => {
-            console.error('MediaRecorder error:', event)
-            chrome.runtime.sendMessage({
-                action: 'error',
-                error: 'Audio recording error: ' + event.error,
-            })
+        // Handle browser compatibility
+        const isEdge = navigator.userAgent.indexOf('Edge') !== -1
+        if (isEdge) {
+            recordRTCOptions.numberOfAudioChannels = 1
         }
 
-        mediaRecorder.onstop = () => {
-            console.log('MediaRecorder stopped')
-            isRecording = false
-        }
+        console.log('Initializing RecordRTC with options:', recordRTCOptions)
 
-        // Start recording and request data periodically
-        mediaRecorder.start()
+        recorder = RecordRTC(currentStream, recordRTCOptions)
+        
+        recorder.startRecording()
         isRecording = true
-
-        // Request data every 4 seconds for faster transcription
-        const dataRequestInterval = setInterval(() => {
-            if (mediaRecorder && mediaRecorder.state === 'recording') {
-                mediaRecorder.requestData()
-                console.log('Requested audio data from MediaRecorder')
-            } else {
-                clearInterval(dataRequestInterval)
+        
+        // Create chunks every 4 seconds for real-time transcription
+        chunkInterval = setInterval(() => {
+            if (recorder && isRecording) {
+                // Stop current recording and get the chunk
+                recorder.stopRecording(() => {
+                    const blob = recorder.getBlob()
+                    
+                    console.log(
+                        'Audio chunk generated:',
+                        blob.size,
+                        'bytes, type:',
+                        blob.type,
+                    )
+                    
+                    // Store the complete chunk (no header management needed)
+                    recordedChunks.push(blob)
+                    
+                    // Notify background script that new chunk is ready
+                    chrome.runtime.sendMessage({
+                        action: 'audioChunkReady',
+                        size: blob.size,
+                        mimeType: blob.type,
+                    })
+                    
+                    // Start a new recording session for the next chunk
+                    if (isRecording && currentStream) {
+                        recorder = RecordRTC(currentStream, recordRTCOptions)
+                        recorder.startRecording()
+                    }
+                })
             }
         }, 4000)
 
-        console.log('Recording started with mime type:', mimeType)
+        console.log('RecordRTC recording started with WAV format')
     } catch (error) {
         console.error('Error starting recording in offscreen document:', error)
         throw error
@@ -215,14 +193,27 @@ async function handleStartRecording(streamId) {
 
 async function handleStopRecording() {
     try {
-        console.log('Stopping recording in offscreen document...')
+        console.log('Stopping RecordRTC recording in offscreen document...')
+        
+        isRecording = false
+        
+        // Clear the chunk interval
+        if (chunkInterval) {
+            clearInterval(chunkInterval)
+            chunkInterval = null
+        }
 
-        // Stop media recorder if active
-        if (mediaRecorder) {
-            if (mediaRecorder.state === 'recording') {
-                mediaRecorder.stop()
-            }
-            mediaRecorder = null
+        // Stop RecordRTC recorder if active
+        if (recorder) {
+            recorder.stopRecording(() => {
+                // Get the final chunk
+                const finalBlob = recorder.getBlob()
+                if (finalBlob && finalBlob.size > 0) {
+                    recordedChunks.push(finalBlob)
+                    console.log('Final audio chunk saved:', finalBlob.size, 'bytes')
+                }
+                recorder = null
+            })
         }
 
         // Stop all stream tracks
@@ -236,23 +227,18 @@ async function handleStopRecording() {
             currentStream = null
         }
 
-        // Clear recorded data and reset processing state
-        recordedChunks = []
-        processedChunkCount = 0
-        isRecording = false
-        webmHeaderChunk = null
-
-        console.log('Recording stopped and cleaned up in offscreen document')
+        console.log('RecordRTC recording stopped and cleaned up')
     } catch (error) {
-        console.error('Error stopping recording:', error)
+        console.error('Error stopping RecordRTC recording:', error)
 
         // Force cleanup even if there are errors
-        mediaRecorder = null
-        currentStream = null
-        recordedChunks = []
-        processedChunkCount = 0
         isRecording = false
-        webmHeaderChunk = null
+        if (chunkInterval) {
+            clearInterval(chunkInterval)
+            chunkInterval = null
+        }
+        recorder = null
+        currentStream = null
 
         throw error
     }
@@ -260,51 +246,29 @@ async function handleStopRecording() {
 
 function handleGetAudioData(sendResponse) {
     console.log(
-        'Getting audio data, total chunks:',
-        recordedChunks.length,
-        'processed:',
-        processedChunkCount,
+        'Getting RecordRTC audio data, total chunks:',
+        recordedChunks.length
     )
 
-    // Only send NEW chunks that haven't been processed yet
-    const newChunks = recordedChunks.slice(processedChunkCount)
-
-    if (webmHeaderChunk && newChunks.length > 0) {
+    // Get the latest unprocessed chunk
+    if (recordedChunks.length > 0) {
         try {
-            // Filter valid new chunks only
-            const validNewChunks = newChunks.filter(
-                (chunk) => chunk && chunk.size > 0,
-            )
-
-            if (validNewChunks.length === 0) {
+            // Get the most recent chunk (RecordRTC chunks are complete audio files)
+            const latestChunk = recordedChunks[recordedChunks.length - 1]
+            
+            if (!latestChunk || latestChunk.size === 0) {
                 sendResponse({
                     success: false,
-                    error: 'No valid new audio chunks available',
+                    error: 'No valid audio chunks available',
                 })
                 return
             }
 
-            // const combinedNewBlob = new Blob(validNewChunks, {
-            //     type: validNewChunks[0].type || 'audio/webm;codecs=opus',
-            // })
-            const combinedNewBlob = new Blob(
-                [webmHeaderChunk, ...validNewChunks],
-                {
-                    type: webmHeaderChunk.type,
-                },
-            )
-
             console.log(
-                'Created NEW chunk blob:',
-                combinedNewBlob.size,
+                'Sending RecordRTC audio chunk:',
+                latestChunk.size,
                 'bytes, type:',
-                combinedNewBlob.type,
-            )
-            console.log(
-                'Processing chunks',
-                processedChunkCount,
-                'to',
-                recordedChunks.length - 1,
+                latestChunk.type,
             )
 
             // Convert to base64 for message passing
@@ -315,15 +279,15 @@ function handleGetAudioData(sendResponse) {
                     sendResponse({
                         success: true,
                         audioData: base64Data,
-                        mimeType: combinedNewBlob.type,
-                        size: combinedNewBlob.size,
+                        mimeType: latestChunk.type,
+                        size: latestChunk.size,
                     })
 
-                    // Mark these chunks as processed (don't clear them, just track count)
-                    processedChunkCount = recordedChunks.length
+                    // Remove the processed chunk to avoid reprocessing
+                    recordedChunks.pop()
                     console.log(
-                        'Audio data sent, processed chunk count now:',
-                        processedChunkCount,
+                        'Audio chunk sent and removed, remaining chunks:',
+                        recordedChunks.length,
                     )
                 } catch (conversionError) {
                     console.error(
@@ -345,18 +309,19 @@ function handleGetAudioData(sendResponse) {
                 })
             }
 
-            reader.readAsDataURL(combinedNewBlob)
+            reader.readAsDataURL(latestChunk)
         } catch (error) {
-            console.error('Error processing audio data:', error)
+            console.error('Error processing RecordRTC audio data:', error)
             sendResponse({
                 success: false,
-                error: 'Failed to process audio chunks: ' + error.message,
+                error: 'Failed to process audio chunk: ' + error.message,
             })
         }
     } else {
+        console.log('No RecordRTC audio chunks available to process')
         sendResponse({
             success: false,
-            error: 'No new audio data available for processing',
+            error: 'No audio chunks available',
         })
     }
 }
