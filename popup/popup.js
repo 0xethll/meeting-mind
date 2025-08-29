@@ -3,6 +3,8 @@ class MeetingMindPopup {
     constructor() {
         this.isRecording = false
         this.transcript = []
+        this.currentMeetingId = null
+        this.meetingSummary = null
 
         this.initializeElements()
         this.attachEventListeners()
@@ -20,6 +22,12 @@ class MeetingMindPopup {
         this.clearBtn = document.getElementById('clearBtn')
         this.settingsBtn = document.getElementById('settingsBtn')
         this.exportBtn = document.getElementById('exportBtn')
+        this.summarizeBtn = document.getElementById('summarizeBtn')
+        this.summarySection = document.getElementById('summarySection')
+        this.summaryContainer = document.getElementById('summaryContainer')
+        this.summaryContent = document.getElementById('summaryContent')
+        this.summaryLoading = document.getElementById('summaryLoading')
+        this.copySummaryBtn = document.getElementById('copySummaryBtn')
     }
 
     attachEventListeners() {
@@ -28,6 +36,10 @@ class MeetingMindPopup {
         this.clearBtn.addEventListener('click', () => this.clearTranscript())
         this.settingsBtn.addEventListener('click', () => this.openSettings())
         this.exportBtn.addEventListener('click', () => this.exportTranscript())
+        this.summarizeBtn.addEventListener('click', () =>
+            this.summarizeTranscript(),
+        )
+        this.copySummaryBtn.addEventListener('click', () => this.copySummary())
 
         // Listen for messages from background script
         chrome.runtime.onMessage.addListener(
@@ -47,11 +59,11 @@ class MeetingMindPopup {
             // Check actual recording status from background script
             try {
                 const backgroundStatus = await chrome.runtime.sendMessage({
-                    action: 'getRecordingStatus'
+                    action: 'getRecordingStatus',
                 })
-                
+
                 console.log('Background recording status:', backgroundStatus)
-                
+
                 if (backgroundStatus && backgroundStatus.isRecording) {
                     this.isRecording = true
                     this.updateUIState('recording')
@@ -62,16 +74,26 @@ class MeetingMindPopup {
                     await chrome.storage.local.set({ isRecording: false })
                 }
             } catch (statusError) {
-                console.warn('Could not get background status, using stored state:', statusError)
-                
+                console.warn(
+                    'Could not get background status, using stored state:',
+                    statusError,
+                )
+
                 // Show connection error if it's a communication issue
-                if (statusError.message && (
-                    statusError.message.includes('Could not establish connection') ||
-                    statusError.message.includes('Receiving end does not exist')
-                )) {
-                    this.showError('Extension not loaded properly. Please reload the extension.')
+                if (
+                    statusError.message &&
+                    (statusError.message.includes(
+                        'Could not establish connection',
+                    ) ||
+                        statusError.message.includes(
+                            'Receiving end does not exist',
+                        ))
+                ) {
+                    this.showError(
+                        'Extension not loaded properly. Please reload the extension.',
+                    )
                 }
-                
+
                 // Fallback to stored state
                 if (data.isRecording) {
                     this.isRecording = true
@@ -86,7 +108,6 @@ class MeetingMindPopup {
                 this.transcript = data.transcript
                 this.displayTranscript()
             }
-
         } catch (error) {
             console.error('Error loading stored data:', error)
         }
@@ -111,11 +132,15 @@ class MeetingMindPopup {
 
             // Check if API key is configured
             const storage = await chrome.storage.local.get(['fireworksApiKey'])
-            if (!storage.fireworksApiKey || storage.fireworksApiKey === 'YOUR_API_KEY_HERE') {
-                this.showError('Please configure your Fireworks API key in Settings first.')
+            if (
+                !storage.fireworksApiKey ||
+                storage.fireworksApiKey === 'YOUR_API_KEY_HERE'
+            ) {
+                this.showError(
+                    'Please configure your Fireworks API key in Settings first.',
+                )
                 return
             }
-
 
             // Show consent message
             if (!(await this.getAudioConsent())) {
@@ -128,13 +153,18 @@ class MeetingMindPopup {
             try {
                 console.log('Testing background script connection...')
                 const testResponse = await chrome.runtime.sendMessage({
-                    action: 'getRecordingStatus'
+                    action: 'getRecordingStatus',
                 })
                 console.log('Background script responding:', testResponse)
             } catch (connectionError) {
-                console.error('Background script connection failed:', connectionError)
+                console.error(
+                    'Background script connection failed:',
+                    connectionError,
+                )
                 this.updateUIState('ready')
-                this.showError('Extension error: Please reload the extension and try again.')
+                this.showError(
+                    'Extension error: Please reload the extension and try again.',
+                )
                 return
             }
 
@@ -149,6 +179,7 @@ class MeetingMindPopup {
 
             if (response && response.success) {
                 this.isRecording = true
+                this.currentMeetingId = this.generateMeetingId()
                 this.updateUIState('recording')
                 await chrome.storage.local.set({ isRecording: true })
             } else {
@@ -161,12 +192,16 @@ class MeetingMindPopup {
         } catch (error) {
             console.error('Error starting recording:', error)
             this.updateUIState('ready')
-            
+
             // Provide specific error messages
             if (error.message.includes('Could not establish connection')) {
-                this.showError('Extension connection error. Please reload the extension (chrome://extensions/) and try again.')
+                this.showError(
+                    'Extension connection error. Please reload the extension (chrome://extensions/) and try again.',
+                )
             } else if (error.message.includes('Receiving end does not exist')) {
-                this.showError('Background script not responding. Please reload the extension and try again.')
+                this.showError(
+                    'Background script not responding. Please reload the extension and try again.',
+                )
             } else {
                 this.showError('Failed to start recording: ' + error.message)
             }
@@ -184,6 +219,11 @@ class MeetingMindPopup {
                 this.updateUIState('ready')
                 await chrome.storage.local.set({ isRecording: false })
                 this.showSuccess('Recording stopped successfully')
+
+                // Enable summarize button if we have transcript
+                if (this.transcript.length > 0) {
+                    this.summarizeBtn.disabled = false
+                }
             } else {
                 this.showError(response.error || 'Failed to stop recording')
                 // Force state reset if stop fails
@@ -242,6 +282,12 @@ class MeetingMindPopup {
             case 'error':
                 this.showError(message.error)
                 break
+            case 'summaryGenerated':
+                this.displaySummary(message.data)
+                break
+            case 'summaryError':
+                this.showSummaryError(message.error)
+                break
         }
     }
 
@@ -264,7 +310,7 @@ class MeetingMindPopup {
 
         // Join all transcript text and format with line breaks only on periods
         const fullText = this.transcript
-            .map(line => line.text)
+            .map((line) => line.text)
             .join(' ')
             .replace(/\.\s+/g, '.<br>')
 
@@ -283,7 +329,10 @@ class MeetingMindPopup {
 
     async clearTranscript() {
         this.transcript = []
+        this.meetingSummary = null
         this.displayTranscript()
+        this.hideSummary()
+        this.summarizeBtn.disabled = true
         try {
             await chrome.storage.local.remove('transcript')
         } catch (error) {
@@ -297,10 +346,21 @@ class MeetingMindPopup {
             return
         }
 
-        const exportText = this.transcript
-            .map(line => line.text)
+        let exportText = '# Meeting Transcript\n\n'
+        exportText += `Generated on: ${new Date().toLocaleString()}\n\n`
+
+        // Add transcript
+        exportText += '## Transcript\n\n'
+        exportText += this.transcript
+            .map((line) => line.text)
             .join(' ')
             .replace(/\.\s+/g, '.\n')
+
+        // Add summary if available
+        if (this.meetingSummary) {
+            exportText += '\n\n## Summary\n\n'
+            exportText += this.meetingSummary
+        }
 
         const blob = new Blob([exportText], { type: 'text/plain' })
         const url = URL.createObjectURL(blob)
@@ -370,7 +430,136 @@ class MeetingMindPopup {
         })
     }
 
+    generateMeetingId() {
+        return `meeting_${Date.now()}_${Math.random()
+            .toString(36)
+            .substr(2, 9)}`
+    }
 
+    async summarizeTranscript() {
+        console.log('start summarize')
+        if (this.transcript.length === 0) {
+            this.showError('No transcript to summarize')
+            return
+        }
+
+        try {
+            // Show loading state
+            this.showSummaryLoading()
+            this.summarizeBtn.disabled = true
+            this.summarizeBtn.textContent = 'Summarizing...'
+
+            // Get full transcript text
+            const fullTranscript = this.transcript
+                .map((line) => line.text)
+                .join(' ')
+
+            // Send to background script for summarization
+            const response = await chrome.runtime.sendMessage({
+                action: 'summarizeTranscript',
+                transcript: fullTranscript,
+            })
+
+            if (!response.success) {
+                throw new Error(response.error || 'Failed to generate summary')
+            }
+        } catch (error) {
+            console.error('Error summarizing transcript:', error)
+            this.showSummaryError(error.message)
+        }
+    }
+
+    showSummaryLoading() {
+        this.summarySection.style.display = 'block'
+        this.summaryLoading.style.display = 'block'
+        this.summaryContent.style.display = 'none'
+    }
+
+    displaySummary(summaryText) {
+        this.meetingSummary = summaryText
+        this.summaryContent.innerHTML = this.formatSummaryText(summaryText)
+        this.summaryLoading.style.display = 'none'
+        this.summaryContent.style.display = 'block'
+        this.summarizeBtn.disabled = false
+        this.summarizeBtn.textContent = 'Summarize'
+
+        // Save summary to storage
+        this.saveMeetingData()
+    }
+
+    showSummaryError(errorMessage) {
+        this.summaryContent.innerHTML = `<div class="error-message">❌ Failed to generate summary: ${errorMessage}</div>`
+        this.summaryLoading.style.display = 'none'
+        this.summaryContent.style.display = 'block'
+        this.summarizeBtn.disabled = false
+        this.summarizeBtn.textContent = 'Summarize'
+    }
+
+    hideSummary() {
+        this.summarySection.style.display = 'none'
+    }
+
+    formatSummaryText(text) {
+        // Convert markdown-like formatting to HTML
+        return text
+            .replace(/## (.*?)$/gm, '<h4>$1</h4>')
+            .replace(/### (.*?)$/gm, '<h5>$1</h5>')
+            .replace(/^\* (.*?)$/gm, '<li>$1</li>')
+            .replace(/(<li>.*<\/li>)/gs, '<ul>$1</ul>')
+            .replace(/\n\n/g, '</p><p>')
+            .replace(/^([^<])/gm, '<p>$1')
+            .replace(/([^>])$/gm, '$1</p>')
+            .replace(/<p><\/p>/g, '')
+    }
+
+    async copySummary() {
+        if (!this.meetingSummary) {
+            this.showError('No summary to copy')
+            return
+        }
+
+        try {
+            await navigator.clipboard.writeText(this.meetingSummary)
+            this.showSuccess('Summary copied to clipboard!')
+        } catch (error) {
+            console.error('Error copying summary:', error)
+            this.showError('Failed to copy summary to clipboard')
+        }
+    }
+
+    async saveMeetingData() {
+        if (!this.currentMeetingId) {
+            return
+        }
+
+        try {
+            const meetingData = {
+                id: this.currentMeetingId,
+                timestamp: new Date().toISOString(),
+                transcript: this.transcript,
+                summary: this.meetingSummary,
+                duration: null, // Could be calculated if needed
+            }
+
+            // Save to meetings storage
+            const storage = await chrome.storage.local.get(['meetings'])
+            const meetings = storage.meetings || []
+
+            // Update existing meeting or add new one
+            const existingIndex = meetings.findIndex(
+                (m) => m.id === this.currentMeetingId,
+            )
+            if (existingIndex >= 0) {
+                meetings[existingIndex] = meetingData
+            } else {
+                meetings.push(meetingData)
+            }
+
+            await chrome.storage.local.set({ meetings })
+        } catch (error) {
+            console.error('Error saving meeting data:', error)
+        }
+    }
 
     openSettings() {
         const modal = document.createElement('div')
@@ -420,7 +609,10 @@ class MeetingMindPopup {
         // Load and display current API key status
         chrome.storage.local.get(['fireworksApiKey']).then((data) => {
             // Show masked API key if exists
-            if (data.fireworksApiKey && data.fireworksApiKey !== 'YOUR_API_KEY_HERE') {
+            if (
+                data.fireworksApiKey &&
+                data.fireworksApiKey !== 'YOUR_API_KEY_HERE'
+            ) {
                 const apiKeyInput = document.getElementById('apiKeyInput')
                 apiKeyInput.placeholder = 'API key configured ✓'
                 apiKeyInput.style.borderColor = '#059669'
@@ -434,13 +626,15 @@ class MeetingMindPopup {
                 this.showError('Please enter a valid API key')
                 return
             }
-            
+
             try {
                 await chrome.storage.local.set({ fireworksApiKey: apiKey })
                 this.showSuccess('API key saved successfully!')
-                document.getElementById('apiKeyInput').placeholder = 'API key configured ✓'
+                document.getElementById('apiKeyInput').placeholder =
+                    'API key configured ✓'
                 document.getElementById('apiKeyInput').value = ''
-                document.getElementById('apiKeyInput').style.borderColor = '#059669'
+                document.getElementById('apiKeyInput').style.borderColor =
+                    '#059669'
             } catch (error) {
                 this.showError('Failed to save API key: ' + error.message)
             }

@@ -157,6 +157,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             })
             break
 
+        case 'summarizeTranscript':
+            handleSummarizeTranscript(message.transcript)
+                .then((response) => sendResponse(response))
+                .catch((error) =>
+                    sendResponse({ success: false, error: error.message }),
+                )
+            return true
+
         default:
             sendResponse({ success: false, error: 'Unknown action' })
     }
@@ -605,5 +613,104 @@ async function transcribeAudio(audioBlob) {
     }
 
     return await response.json()
+}
+
+async function handleSummarizeTranscript(transcript) {
+    try {
+        if (!transcript || transcript.trim() === '') {
+            throw new Error('No transcript content to summarize')
+        }
+
+        // Get API key from storage
+        const storage = await chrome.storage.local.get(['fireworksApiKey'])
+        const apiKey = storage.fireworksApiKey
+        
+        if (!apiKey || apiKey === 'YOUR_API_KEY_HERE') {
+            throw new Error('API key not configured')
+        }
+
+        console.log('Generating summary for transcript length:', transcript.length)
+
+        const summary = await generateMeetingSummary(transcript, apiKey)
+        
+        // Send summary to popup
+        chrome.runtime.sendMessage({
+            action: 'summaryGenerated',
+            data: summary,
+        })
+
+        return { success: true, summary }
+    } catch (error) {
+        console.error('Error summarizing transcript:', error)
+        
+        // Send error to popup
+        chrome.runtime.sendMessage({
+            action: 'summaryError',
+            error: error.message,
+        })
+        
+        throw error
+    }
+}
+
+async function generateMeetingSummary(transcript, apiKey) {
+    const prompt = `Please analyze this meeting transcript and provide a comprehensive summary with the following sections:
+
+## Meeting Overview
+Brief description of the meeting purpose and context
+
+## Key Discussion Points
+Main topics and themes discussed (bullet points)
+
+## Action Items
+Specific tasks or commitments mentioned (if any)
+
+## Decisions Made
+Important decisions or conclusions reached (if any)
+
+## Participants & Insights
+Notable contributions or viewpoints (if identifiable from context)
+
+## Follow-up Required
+Next steps or pending items mentioned
+
+Transcript to analyze:
+${transcript}
+
+Please provide a well-structured, professional summary that captures the essential information from this meeting.`
+
+    const response = await fetch('https://api.fireworks.ai/inference/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+            'Authorization': `Bearer ${apiKey}`,
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            model: 'accounts/sentientfoundation-serverless/models/dobby-mini-unhinged-plus-llama-3-1-8b',
+            messages: [
+                {
+                    role: 'user',
+                    content: prompt
+                }
+            ],
+            max_tokens: 2048,
+            temperature: 0.7,
+            top_p: 0.9,
+        })
+    })
+
+    if (!response.ok) {
+        const errorText = await response.text()
+        console.error('Fireworks API error:', response.status, errorText)
+        throw new Error(`Failed to generate summary: ${response.status} ${response.statusText}`)
+    }
+
+    const result = await response.json()
+    
+    if (!result.choices || !result.choices[0] || !result.choices[0].message) {
+        throw new Error('Invalid response format from Fireworks API')
+    }
+
+    return result.choices[0].message.content
 }
 
