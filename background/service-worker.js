@@ -21,6 +21,12 @@ chrome.runtime.onInstalled.addListener(async (details) => {
     }
 })
 
+// Handle action button clicks to open side panel
+chrome.action.onClicked.addListener(async (tab) => {
+    // Open side panel programmatically
+    await chrome.sidePanel.open({ tabId: tab.id });
+});
+
 // Also cleanup when service worker starts
 chrome.runtime.onStartup.addListener(async () => {
     console.log('MeetingMind service worker started');

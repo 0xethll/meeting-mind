@@ -5,73 +5,192 @@
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <title>MeetingMind</title>
         <link rel="stylesheet" href="popup.css" />
+        <link rel="preconnect" href="https://fonts.googleapis.com">
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     </head>
     <body>
-        <div class="container">
+        <div class="app-container">
+            <!-- Header with branding and status -->
             <div class="header">
-                <h1>MeetingMind</h1>
-                <p class="subtitle">AI Meeting Transcription</p>
-            </div>
-
-            <div class="status-section">
-                <div class="status-indicator">
-                    <span class="status-dot" id="statusDot"></span>
-                    <span class="status-text" id="statusText">Ready</span>
+                <div class="logo-section">
+                    <div class="logo">
+                        <span class="logo-bracket">[</span>
+                        <span class="logo-text">MeetingMind</span>
+                        <span class="logo-bracket">]</span>
+                    </div>
+                    <div class="version-tag">v1.0.0-beta</div>
+                </div>
+                <div class="status-display">
+                    <div class="status-indicator">
+                        <span class="status-dot" id="statusDot"></span>
+                        <span class="status-text" id="statusText">READY</span>
+                    </div>
+                    <div class="system-metrics">
+                        <span id="sessionTime">00:00:00</span>
+                    </div>
                 </div>
             </div>
 
-            <div class="controls">
-                <button id="startBtn" class="btn btn-primary">
-                    <span class="btn-icon">🎙️</span>
-                    Start Recording
+            <!-- Navigation Tabs -->
+            <div class="nav-tabs">
+                <button class="nav-tab active" data-page="dashboard">
+                    <span class="nav-icon">▶</span>Dashboard
                 </button>
-                <button id="stopBtn" class="btn btn-secondary" disabled>
-                    <span class="btn-icon">⏹️</span>
-                    Stop Recording
+                <button class="nav-tab" data-page="transcript">
+                    <span class="nav-icon">📝</span>Transcript
+                </button>
+                <button class="nav-tab" data-page="analytics">
+                    <span class="nav-icon">📊</span>Analytics
+                </button>
+                <button class="nav-tab" data-page="settings">
+                    <span class="nav-icon">⚙️</span>Settings
                 </button>
             </div>
 
-            <div class="transcript-section">
-                <div class="transcript-header">
-                    <h3>Live Transcript</h3>
-                    <div class="transcript-actions">
-                        <button id="summarizeBtn" class="btn-small">
-                            Summarize
+            <!-- Dashboard Page -->
+            <div class="page active" data-page="dashboard">
+                <div class="page-content">
+                    <!-- Quick Controls -->
+                    <div class="control-panel">
+                        <button id="startBtn" class="btn btn-primary">
+                            <span class="btn-icon">●</span>
+                            <span class="btn-text">START_REC</span>
                         </button>
-                        <button id="clearBtn" class="btn-small">Clear</button>
+                        <button id="stopBtn" class="btn btn-danger" disabled>
+                            <span class="btn-icon">■</span>
+                            <span class="btn-text">STOP_REC</span>
+                        </button>
                     </div>
-                </div>
-                <div class="transcript-container" id="transcriptContainer">
-                    <p class="transcript-placeholder">
-                        Click "Start Recording" to begin transcription...
-                    </p>
+
+                    <!-- Live Preview -->
+                    <div class="live-preview">
+                        <div class="section-header">
+                            <span class="section-title">&gt; LIVE_FEED</span>
+                            <div class="preview-controls">
+                                <button id="summarizeBtn" class="btn-mini" disabled>ANALYZE</button>
+                                <button id="clearBtn" class="btn-mini">CLEAR</button>
+                            </div>
+                        </div>
+                        <div class="preview-container" id="previewContainer">
+                            <div class="terminal-prompt">
+                                <span class="prompt-symbol">$</span>
+                                <span class="cursor-blink">_</span>
+                                <span class="preview-placeholder">Waiting for audio input...</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Quick Stats -->
+                    <div class="stats-grid">
+                        <div class="stat-card">
+                            <div class="stat-label">WORDS</div>
+                            <div class="stat-value" id="wordCount">0</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-label">SPEAKERS</div>
+                            <div class="stat-value" id="speakerCount">0</div>
+                        </div>
+                        <div class="stat-card">
+                            <div class="stat-label">DURATION</div>
+                            <div class="stat-value" id="duration">00:00</div>
+                        </div>
+                    </div>
                 </div>
             </div>
 
-            <div
-                class="summary-section"
-                id="summarySection"
-                style="display: none"
-            >
-                <div class="summary-header">
-                    <h3>Meeting Summary</h3>
-                    <button id="copySummaryBtn" class="btn-small">Copy</button>
-                </div>
-                <div class="summary-container" id="summaryContainer">
-                    <div
-                        class="summary-loading"
-                        id="summaryLoading"
-                        style="display: none"
-                    >
-                        <p>🤖 Generating meeting summary...</p>
+            <!-- Transcript Page -->
+            <div class="page" data-page="transcript">
+                <div class="page-content">
+                    <div class="transcript-header">
+                        <div class="section-header">
+                            <span class="section-title">&gt; FULL_TRANSCRIPT</span>
+                            <div class="transcript-controls">
+                                <input type="text" class="search-input" placeholder="Search transcript..." id="searchInput">
+                                <button id="exportBtn" class="btn-mini">EXPORT</button>
+                            </div>
+                        </div>
                     </div>
-                    <div class="summary-content" id="summaryContent"></div>
+                    <div class="transcript-full" id="transcriptFull">
+                        <div class="terminal-output">
+                            <div class="output-line">
+                                <span class="line-number">001</span>
+                                <span class="system-msg"># No transcript data available</span>
+                            </div>
+                            <div class="output-line">
+                                <span class="line-number">002</span>
+                                <span class="system-msg"># Start recording to see live transcription</span>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
 
-            <div class="footer">
-                <button id="settingsBtn" class="btn-link">Settings</button>
-                <button id="exportBtn" class="btn-link">Export</button>
+            <!-- Analytics Page -->
+            <div class="page" data-page="analytics">
+                <div class="page-content">
+                    <div class="section-header">
+                        <span class="section-title">&gt; MEETING_ANALYTICS</span>
+                    </div>
+                    <div class="analytics-grid">
+                        <div class="analytics-card">
+                            <div class="card-title">SESSION HISTORY</div>
+                            <div id="sessionHistory" class="session-list">
+                                <div class="no-data">No sessions recorded yet</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Settings Page -->
+            <div class="page" data-page="settings">
+                <div class="page-content">
+                    <div class="section-header">
+                        <span class="section-title">&gt; CONFIGURATION</span>
+                    </div>
+                    <div class="settings-form">
+                        <div class="setting-group">
+                            <label class="setting-label">FIREWORKS_API_KEY</label>
+                            <input type="password" id="apiKeyInput" class="setting-input" placeholder="Enter API key...">
+                            <button id="saveApiKey" class="btn-setting">SAVE</button>
+                        </div>
+                        <div class="setting-group">
+                            <label class="setting-label">THEME_MODE</label>
+                            <select id="themeSelect" class="setting-select">
+                                <option value="dark">DARK_TERMINAL</option>
+                                <option value="cyberpunk">CYBERPUNK</option>
+                                <option value="matrix">MATRIX_GREEN</option>
+                            </select>
+                        </div>
+                        <div class="setting-group">
+                            <label class="setting-label">AUTO_EXPORT</label>
+                            <input type="checkbox" id="autoExport" class="setting-checkbox">
+                            <span class="setting-desc">Export transcript on recording stop</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Summary Modal -->
+            <div class="modal" id="summaryModal" style="display: none;">
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <span class="section-title">&gt; AI_ANALYSIS</span>
+                        <button id="closeSummaryBtn" class="close-btn">×</button>
+                    </div>
+                    <div class="modal-body">
+                        <div class="summary-loading" id="summaryLoading" style="display: none;">
+                            <div class="loading-spinner"></div>
+                            <span>Analyzing meeting data...</span>
+                        </div>
+                        <div class="summary-content" id="summaryContent"></div>
+                    </div>
+                    <div class="modal-footer">
+                        <button id="copySummaryBtn" class="btn btn-secondary">COPY</button>
+                        <button id="exportSummaryBtn" class="btn btn-primary">EXPORT</button>
+                    </div>
+                </div>
             </div>
         </div>
 

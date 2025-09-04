@@ -15,7 +15,8 @@
     "storage",
     "activeTab",
     "scripting",
-    "offscreen"
+    "offscreen",
+    "sidePanel"
   ],
   
   "host_permissions": [
@@ -42,8 +43,11 @@
   ],
   
   "action": {
-    "default_popup": "popup/popup.html",
     "default_title": "MeetingMind - Meeting Transcription"
+  },
+
+  "side_panel": {
+    "default_path": "popup/popup.html"
   },
   
   "web_accessible_resources": [
