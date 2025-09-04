@@ -408,15 +408,11 @@ class MeetingMindPopup {
             return
         }
 
-        // Show last few lines in terminal style
+        // Show last few lines in clean preview style without line numbers
         const lastLines = this.transcript.slice(-3)
-        const terminalOutput = lastLines
+        const previewOutput = lastLines
             .map((line, index) => {
-                const lineNum = String(
-                    this.transcript.length - lastLines.length + index + 1,
-                ).padStart(3, '0')
-                return `<div class="output-line">
-                <span class="line-number">${lineNum}</span>
+                return `<div class="preview-line">
                 <span class="speaker-msg">${this.escapeHtml(line.text)}</span>
             </div>`
             })
@@ -424,11 +420,8 @@ class MeetingMindPopup {
 
         container.innerHTML = `
             <div class="terminal-output">
-                ${terminalOutput}
-                <div class="output-line">
-                    <span class="line-number">${String(
-                        this.transcript.length + 1,
-                    ).padStart(3, '0')}</span>
+                ${previewOutput}
+                <div class="preview-line">
                     <span class="prompt-symbol">$</span>
                     <span class="cursor-blink">_</span>
                 </div>
@@ -679,7 +672,7 @@ class MeetingMindPopup {
     }
 
     hideSummary() {
-        this.summarySection.style.display = 'none'
+        this.summaryModal.style.display = 'none'
     }
 
     formatSummaryText(text) {

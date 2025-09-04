@@ -20,7 +20,7 @@
     --border-primary: #30363d;
     --border-accent: #58a6ff;
     --shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
-    
+
     /* Typography */
     --font-mono: 'JetBrains Mono', 'Consolas', 'Monaco', monospace;
     --font-ui: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
@@ -43,10 +43,21 @@ body::before {
     left: 0;
     right: 0;
     bottom: 0;
-    background: 
-        radial-gradient(circle at 20% 50%, rgba(88, 166, 255, 0.1) 0%, transparent 50%),
-        radial-gradient(circle at 80% 20%, rgba(63, 185, 80, 0.1) 0%, transparent 50%),
-        radial-gradient(circle at 40% 80%, rgba(248, 81, 73, 0.1) 0%, transparent 50%);
+    background: radial-gradient(
+            circle at 20% 50%,
+            rgba(88, 166, 255, 0.1) 0%,
+            transparent 50%
+        ),
+        radial-gradient(
+            circle at 80% 20%,
+            rgba(63, 185, 80, 0.1) 0%,
+            transparent 50%
+        ),
+        radial-gradient(
+            circle at 40% 80%,
+            rgba(248, 81, 73, 0.1) 0%,
+            transparent 50%
+        );
     pointer-events: none;
     z-index: -1;
 }
@@ -76,7 +87,12 @@ body::before {
     left: 0;
     right: 0;
     height: 1px;
-    background: linear-gradient(90deg, transparent, var(--text-accent), transparent);
+    background: linear-gradient(
+        90deg,
+        transparent,
+        var(--text-accent),
+        transparent
+    );
     opacity: 0.3;
 }
 
@@ -266,7 +282,12 @@ body::before {
     left: -100%;
     width: 100%;
     height: 100%;
-    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.1), transparent);
+    background: linear-gradient(
+        90deg,
+        transparent,
+        rgba(255, 255, 255, 0.1),
+        transparent
+    );
     transition: left 0.5s ease;
 }
 
@@ -359,14 +380,6 @@ body::before {
     border-top: 1px solid var(--border-primary);
 }
 
-.terminal-prompt {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 13px;
-    line-height: 1.6;
-}
-
 .prompt-symbol {
     color: var(--text-accent);
     font-weight: 600;
@@ -411,7 +424,12 @@ body::before {
     left: 0;
     right: 0;
     height: 2px;
-    background: linear-gradient(90deg, var(--text-accent), var(--text-success), var(--text-warning));
+    background: linear-gradient(
+        90deg,
+        var(--text-accent),
+        var(--text-success),
+        var(--text-warning)
+    );
     opacity: 0.6;
 }
 
@@ -474,12 +492,20 @@ body::before {
 }
 
 .terminal-output {
-    padding: 16px;
+    /* padding: 16px; */
     font-family: var(--font-mono);
     font-size: 12px;
     line-height: 1.6;
     overflow-y: auto;
     flex: 1;
+}
+
+.terminal-prompt {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    line-height: 1.6;
 }
 
 .output-line {
@@ -579,7 +605,8 @@ body::before {
     letter-spacing: 0.5px;
 }
 
-.setting-input, .setting-select {
+.setting-input,
+.setting-select {
     padding: 10px 12px;
     background: var(--bg-tertiary);
     border: 1px solid var(--border-primary);
@@ -593,7 +620,8 @@ body::before {
     color: var(--text-secondary);
 }
 
-.setting-input:focus, .setting-select:focus {
+.setting-input:focus,
+.setting-select:focus {
     outline: none;
     border-color: var(--text-accent);
     box-shadow: 0 0 0 2px rgba(88, 166, 255, 0.2);
@@ -754,28 +782,56 @@ body::before {
 
 /* Animations */
 @keyframes pulse {
-    0%, 100% { opacity: 1; transform: scale(1); }
-    50% { opacity: 0.7; transform: scale(1.1); }
+    0%,
+    100% {
+        opacity: 1;
+        transform: scale(1);
+    }
+    50% {
+        opacity: 0.7;
+        transform: scale(1.1);
+    }
 }
 
 @keyframes spin {
-    from { transform: rotate(0deg); }
-    to { transform: rotate(360deg); }
+    from {
+        transform: rotate(0deg);
+    }
+    to {
+        transform: rotate(360deg);
+    }
 }
 
 @keyframes blink {
-    0%, 50% { opacity: 1; }
-    51%, 100% { opacity: 0; }
+    0%,
+    50% {
+        opacity: 1;
+    }
+    51%,
+    100% {
+        opacity: 0;
+    }
 }
 
 @keyframes slideIn {
-    from { transform: translateY(10px); opacity: 0; }
-    to { transform: translateY(0); opacity: 1; }
+    from {
+        transform: translateY(10px);
+        opacity: 0;
+    }
+    to {
+        transform: translateY(0);
+        opacity: 1;
+    }
 }
 
 @keyframes glow {
-    0%, 100% { box-shadow: 0 0 5px rgba(88, 166, 255, 0.3); }
-    50% { box-shadow: 0 0 20px rgba(88, 166, 255, 0.6); }
+    0%,
+    100% {
+        box-shadow: 0 0 5px rgba(88, 166, 255, 0.3);
+    }
+    50% {
+        box-shadow: 0 0 20px rgba(88, 166, 255, 0.6);
+    }
 }
 
 /* Scrollbar Styling */
@@ -828,36 +884,43 @@ body::before {
     body {
         width: 350px;
     }
-    
+
     .nav-tab {
         font-size: 9px;
         padding: 10px 6px;
     }
-    
+
     .control-panel {
         grid-template-columns: 1fr;
         gap: 8px;
     }
-    
+
     .stats-grid {
         grid-template-columns: 1fr 1fr;
     }
 }
 
 /* Theme Variants */
-body[data-theme="cyberpunk"] {
+body[data-theme='cyberpunk'] {
     --text-accent: #ff00ff;
     --text-success: #00ffff;
     --text-warning: #ffff00;
 }
 
-body[data-theme="cyberpunk"]::before {
-    background: 
-        radial-gradient(circle at 20% 50%, rgba(255, 0, 255, 0.15) 0%, transparent 50%),
-        radial-gradient(circle at 80% 20%, rgba(0, 255, 255, 0.15) 0%, transparent 50%);
+body[data-theme='cyberpunk']::before {
+    background: radial-gradient(
+            circle at 20% 50%,
+            rgba(255, 0, 255, 0.15) 0%,
+            transparent 50%
+        ),
+        radial-gradient(
+            circle at 80% 20%,
+            rgba(0, 255, 255, 0.15) 0%,
+            transparent 50%
+        );
 }
 
-body[data-theme="matrix"] {
+body[data-theme='matrix'] {
     --bg-primary: #000000;
     --bg-secondary: #001100;
     --bg-tertiary: #002200;
@@ -866,9 +929,12 @@ body[data-theme="matrix"] {
     --text-success: #00ff00;
 }
 
-body[data-theme="matrix"]::before {
-    background: 
-        radial-gradient(circle at 50% 50%, rgba(0, 255, 0, 0.1) 0%, transparent 70%);
+body[data-theme='matrix']::before {
+    background: radial-gradient(
+        circle at 50% 50%,
+        rgba(0, 255, 0, 0.1) 0%,
+        transparent 70%
+    );
 }
 
 /* Error Message */
@@ -884,12 +950,24 @@ body[data-theme="matrix"]::before {
 }
 
 /* Speaker Color Coding */
-.speaker-0 { color: #58a6ff !important; }
-.speaker-1 { color: #3fb950 !important; }
-.speaker-2 { color: #d29922 !important; }
-.speaker-3 { color: #f85149 !important; }
-.speaker-4 { color: #bc8cff !important; }
-.speaker-5 { color: #ff7b72 !important; }
+.speaker-0 {
+    color: #58a6ff !important;
+}
+.speaker-1 {
+    color: #3fb950 !important;
+}
+.speaker-2 {
+    color: #d29922 !important;
+}
+.speaker-3 {
+    color: #f85149 !important;
+}
+.speaker-4 {
+    color: #bc8cff !important;
+}
+.speaker-5 {
+    color: #ff7b72 !important;
+}
 
 /* Typing Effect */
 .typing-effect {
@@ -925,20 +1003,40 @@ body[data-theme="matrix"]::before {
 
 /* Advanced Animations */
 @keyframes typewriter {
-    from { width: 0; }
-    to { width: 100%; }
+    from {
+        width: 0;
+    }
+    to {
+        width: 100%;
+    }
 }
 
 @keyframes fadeIn {
-    from { opacity: 0; transform: translateY(5px); }
-    to { opacity: 1; transform: translateY(0); }
+    from {
+        opacity: 0;
+        transform: translateY(5px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }
 
 @keyframes matrix-rain {
-    0% { opacity: 0; transform: translateY(-10px); }
-    10% { opacity: 1; }
-    90% { opacity: 1; }
-    100% { opacity: 0; transform: translateY(10px); }
+    0% {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+    10% {
+        opacity: 1;
+    }
+    90% {
+        opacity: 1;
+    }
+    100% {
+        opacity: 0;
+        transform: translateY(10px);
+    }
 }
 
 /* Live transcript animation */
@@ -979,28 +1077,28 @@ body[data-theme="matrix"]::before {
 }
 
 /* Matrix theme enhancements */
-body[data-theme="matrix"] .output-line {
+body[data-theme='matrix'] .output-line {
     animation: matrix-rain 3s infinite;
     animation-delay: calc(var(--line-index) * 0.1s);
 }
 
-body[data-theme="matrix"] .cursor-blink {
+body[data-theme='matrix'] .cursor-blink {
     color: #00ff00;
     text-shadow: 0 0 10px #00ff00;
 }
 
 /* Cyberpunk theme enhancements */
-body[data-theme="cyberpunk"] .status-dot.recording {
+body[data-theme='cyberpunk'] .status-dot.recording {
     background: #ff00ff;
     box-shadow: 0 0 15px #ff00ff;
 }
 
-body[data-theme="cyberpunk"] .btn-primary {
+body[data-theme='cyberpunk'] .btn-primary {
     background: linear-gradient(135deg, #ff00ff, #00ffff);
     box-shadow: 0 0 20px rgba(255, 0, 255, 0.4);
 }
 
-body[data-theme="cyberpunk"] .nav-tab.active {
+body[data-theme='cyberpunk'] .nav-tab.active {
     color: #ff00ff;
     border-bottom-color: #ff00ff;
     text-shadow: 0 0 10px #ff00ff;

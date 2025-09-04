@@ -5,9 +5,12 @@
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
         <title>MeetingMind</title>
         <link rel="stylesheet" href="popup.css" />
-        <link rel="preconnect" href="https://fonts.googleapis.com">
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-        <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+        <link
+            href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600&family=Inter:wght@300;400;500;600;700&display=swap"
+            rel="stylesheet"
+        />
     </head>
     <body>
         <div class="app-container">
@@ -68,15 +71,25 @@
                         <div class="section-header">
                             <span class="section-title">&gt; LIVE_FEED</span>
                             <div class="preview-controls">
-                                <button id="summarizeBtn" class="btn-mini" disabled>ANALYZE</button>
-                                <button id="clearBtn" class="btn-mini">CLEAR</button>
+                                <button
+                                    id="summarizeBtn"
+                                    class="btn-mini"
+                                    disabled
+                                >
+                                    ANALYZE
+                                </button>
+                                <button id="clearBtn" class="btn-mini">
+                                    CLEAR
+                                </button>
                             </div>
                         </div>
                         <div class="preview-container" id="previewContainer">
                             <div class="terminal-prompt">
                                 <span class="prompt-symbol">$</span>
                                 <span class="cursor-blink">_</span>
-                                <span class="preview-placeholder">Waiting for audio input...</span>
+                                <span class="preview-placeholder"
+                                    >Waiting for audio input...</span
+                                >
                             </div>
                         </div>
                     </div>
@@ -104,10 +117,19 @@
                 <div class="page-content">
                     <div class="transcript-header">
                         <div class="section-header">
-                            <span class="section-title">&gt; FULL_TRANSCRIPT</span>
+                            <span class="section-title"
+                                >&gt; FULL_TRANSCRIPT</span
+                            >
                             <div class="transcript-controls">
-                                <input type="text" class="search-input" placeholder="Search transcript..." id="searchInput">
-                                <button id="exportBtn" class="btn-mini">EXPORT</button>
+                                <input
+                                    type="text"
+                                    class="search-input"
+                                    placeholder="Search transcript..."
+                                    id="searchInput"
+                                />
+                                <button id="exportBtn" class="btn-mini">
+                                    EXPORT
+                                </button>
                             </div>
                         </div>
                     </div>
@@ -115,11 +137,16 @@
                         <div class="terminal-output">
                             <div class="output-line">
                                 <span class="line-number">001</span>
-                                <span class="system-msg"># No transcript data available</span>
+                                <span class="system-msg"
+                                    ># No transcript data available</span
+                                >
                             </div>
                             <div class="output-line">
                                 <span class="line-number">002</span>
-                                <span class="system-msg"># Start recording to see live transcription</span>
+                                <span class="system-msg"
+                                    ># Start recording to see live
+                                    transcription</span
+                                >
                             </div>
                         </div>
                     </div>
@@ -130,13 +157,17 @@
             <div class="page" data-page="analytics">
                 <div class="page-content">
                     <div class="section-header">
-                        <span class="section-title">&gt; MEETING_ANALYTICS</span>
+                        <span class="section-title"
+                            >&gt; MEETING_ANALYTICS</span
+                        >
                     </div>
                     <div class="analytics-grid">
                         <div class="analytics-card">
                             <div class="card-title">SESSION HISTORY</div>
                             <div id="sessionHistory" class="session-list">
-                                <div class="no-data">No sessions recorded yet</div>
+                                <div class="no-data">
+                                    No sessions recorded yet
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -151,9 +182,18 @@
                     </div>
                     <div class="settings-form">
                         <div class="setting-group">
-                            <label class="setting-label">FIREWORKS_API_KEY</label>
-                            <input type="password" id="apiKeyInput" class="setting-input" placeholder="Enter API key...">
-                            <button id="saveApiKey" class="btn-setting">SAVE</button>
+                            <label class="setting-label"
+                                >FIREWORKS_API_KEY</label
+                            >
+                            <input
+                                type="password"
+                                id="apiKeyInput"
+                                class="setting-input"
+                                placeholder="Enter API key..."
+                            />
+                            <button id="saveApiKey" class="btn-setting">
+                                SAVE
+                            </button>
                         </div>
                         <div class="setting-group">
                             <label class="setting-label">THEME_MODE</label>
@@ -165,30 +205,46 @@
                         </div>
                         <div class="setting-group">
                             <label class="setting-label">AUTO_EXPORT</label>
-                            <input type="checkbox" id="autoExport" class="setting-checkbox">
-                            <span class="setting-desc">Export transcript on recording stop</span>
+                            <input
+                                type="checkbox"
+                                id="autoExport"
+                                class="setting-checkbox"
+                            />
+                            <span class="setting-desc"
+                                >Export transcript on recording stop</span
+                            >
                         </div>
                     </div>
                 </div>
             </div>
 
             <!-- Summary Modal -->
-            <div class="modal" id="summaryModal" style="display: none;">
+            <div class="modal" id="summaryModal" style="display: none">
                 <div class="modal-content">
                     <div class="modal-header">
                         <span class="section-title">&gt; AI_ANALYSIS</span>
-                        <button id="closeSummaryBtn" class="close-btn">×</button>
+                        <button id="closeSummaryBtn" class="close-btn">
+                            ×
+                        </button>
                     </div>
                     <div class="modal-body">
-                        <div class="summary-loading" id="summaryLoading" style="display: none;">
+                        <div
+                            class="summary-loading"
+                            id="summaryLoading"
+                            style="display: none"
+                        >
                             <div class="loading-spinner"></div>
                             <span>Analyzing meeting data...</span>
                         </div>
                         <div class="summary-content" id="summaryContent"></div>
                     </div>
                     <div class="modal-footer">
-                        <button id="copySummaryBtn" class="btn btn-secondary">COPY</button>
-                        <button id="exportSummaryBtn" class="btn btn-primary">EXPORT</button>
+                        <button id="copySummaryBtn" class="btn btn-secondary">
+                            COPY
+                        </button>
+                        <button id="exportSummaryBtn" class="btn btn-primary">
+                            EXPORT
+                        </button>
                     </div>
                 </div>
             </div>

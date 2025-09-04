@@ -70,6 +70,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return true // Async response handled by handleGetAudioData
     }
 
+    if (message.type === 'analyze-silence') {
+        console.log('Offscreen document handling analyze-silence...')
+        handleAnalyzeSilence(message, sendResponse)
+        return true // Async response handled by handleAnalyzeSilence
+    }
+
     // Unknown message type
     console.error('Unknown message type:', message.type)
     sendResponse({
@@ -126,7 +132,7 @@ async function handleStartRecording(streamId) {
 
         // Initialize RecordRTC for better audio handling
         recordedChunks = []
-        
+
         // Configure RecordRTC options
         const recordRTCOptions = {
             type: 'audio',
@@ -135,7 +141,7 @@ async function handleStartRecording(streamId) {
             checkForInactiveTracks: true,
             bufferSize: 16384,
             sampleRate: 48000,
-            mimeType: 'audio/wav' // WAV format for better transcription compatibility
+            mimeType: 'audio/wav', // WAV format for better transcription compatibility
         }
 
         // Handle browser compatibility
@@ -147,34 +153,34 @@ async function handleStartRecording(streamId) {
         console.log('Initializing RecordRTC with options:', recordRTCOptions)
 
         recorder = RecordRTC(currentStream, recordRTCOptions)
-        
+
         recorder.startRecording()
         isRecording = true
-        
-        // Create chunks every 4 seconds for real-time transcription
+
+        // Create chunks every 5 seconds for real-time transcription
         chunkInterval = setInterval(() => {
             if (recorder && isRecording) {
                 // Stop current recording and get the chunk
                 recorder.stopRecording(() => {
                     const blob = recorder.getBlob()
-                    
+
                     console.log(
                         'Audio chunk generated:',
                         blob.size,
                         'bytes, type:',
                         blob.type,
                     )
-                    
+
                     // Store the complete chunk (no header management needed)
                     recordedChunks.push(blob)
-                    
+
                     // Notify background script that new chunk is ready
                     chrome.runtime.sendMessage({
                         action: 'audioChunkReady',
                         size: blob.size,
                         mimeType: blob.type,
                     })
-                    
+
                     // Start a new recording session for the next chunk
                     if (isRecording && currentStream) {
                         recorder = RecordRTC(currentStream, recordRTCOptions)
@@ -182,7 +188,7 @@ async function handleStartRecording(streamId) {
                     }
                 })
             }
-        }, 4000)
+        }, 5000)
 
         console.log('RecordRTC recording started with WAV format')
     } catch (error) {
@@ -194,9 +200,9 @@ async function handleStartRecording(streamId) {
 async function handleStopRecording() {
     try {
         console.log('Stopping RecordRTC recording in offscreen document...')
-        
+
         isRecording = false
-        
+
         // Clear the chunk interval
         if (chunkInterval) {
             clearInterval(chunkInterval)
@@ -210,7 +216,11 @@ async function handleStopRecording() {
                 const finalBlob = recorder.getBlob()
                 if (finalBlob && finalBlob.size > 0) {
                     recordedChunks.push(finalBlob)
-                    console.log('Final audio chunk saved:', finalBlob.size, 'bytes')
+                    console.log(
+                        'Final audio chunk saved:',
+                        finalBlob.size,
+                        'bytes',
+                    )
                 }
                 recorder = null
             })
@@ -246,32 +256,47 @@ async function handleStopRecording() {
 
 function handleGetAudioData(sendResponse) {
     console.log(
-        'Getting RecordRTC audio data, total chunks:',
-        recordedChunks.length
+        'Getting RecordRTC audio data for batch processing, total chunks:',
+        recordedChunks.length,
     )
 
-    // Get the latest unprocessed chunk
+    // Batch process ALL unprocessed chunks
     if (recordedChunks.length > 0) {
         try {
-            // Get the most recent chunk (RecordRTC chunks are complete audio files)
-            const latestChunk = recordedChunks[recordedChunks.length - 1]
+            // Get ALL chunks for batch processing
+            const chunksToProcess = [...recordedChunks] // Create a copy
             
-            if (!latestChunk || latestChunk.size === 0) {
-                sendResponse({
-                    success: false,
-                    error: 'No valid audio chunks available',
-                })
-                return
+            if (chunksToProcess.some(chunk => !chunk || chunk.size === 0)) {
+                console.warn('Some chunks are empty, filtering them out')
+                const validChunks = chunksToProcess.filter(chunk => chunk && chunk.size > 0)
+                if (validChunks.length === 0) {
+                    sendResponse({
+                        success: false,
+                        error: 'No valid audio chunks available',
+                    })
+                    return
+                }
             }
 
             console.log(
-                'Sending RecordRTC audio chunk:',
-                latestChunk.size,
-                'bytes, type:',
-                latestChunk.type,
+                `🎵 BATCH PROCESSING: Merging ${chunksToProcess.length} audio chunks for transcription`,
+                'Total size:', chunksToProcess.reduce((sum, chunk) => sum + chunk.size, 0), 'bytes'
             )
 
-            // Convert to base64 for message passing
+            // Merge all chunks into a single blob for batch processing
+            const mergedBlob = new Blob(chunksToProcess, {
+                type: chunksToProcess[0].type || 'audio/webm;codecs=opus'
+            })
+
+            console.log(
+                'Merged audio blob:',
+                mergedBlob.size,
+                'bytes, type:',
+                mergedBlob.type,
+                'from', chunksToProcess.length, 'chunks'
+            )
+
+            // Convert merged blob to base64 for message passing
             const reader = new FileReader()
             reader.onload = () => {
                 try {
@@ -279,49 +304,182 @@ function handleGetAudioData(sendResponse) {
                     sendResponse({
                         success: true,
                         audioData: base64Data,
-                        mimeType: latestChunk.type,
-                        size: latestChunk.size,
+                        mimeType: mergedBlob.type,
+                        size: mergedBlob.size,
+                        chunksProcessed: chunksToProcess.length
                     })
 
-                    // Remove the processed chunk to avoid reprocessing
-                    recordedChunks.pop()
+                    // Clear ALL processed chunks after successful batch processing
+                    recordedChunks.length = 0 // Clear the entire array
                     console.log(
-                        'Audio chunk sent and removed, remaining chunks:',
+                        `✅ BATCH PROCESSED: ${chunksToProcess.length} chunks sent and cleared. Remaining chunks:`,
                         recordedChunks.length,
                     )
                 } catch (conversionError) {
                     console.error(
-                        'Error in FileReader onload:',
+                        'Error in FileReader onload during batch processing:',
                         conversionError,
                     )
                     sendResponse({
                         success: false,
-                        error: 'Failed to process audio data',
+                        error: 'Failed to process batch audio data: ' + conversionError.message,
                     })
                 }
             }
 
             reader.onerror = (error) => {
-                console.error('FileReader error:', error)
+                console.error('FileReader error during batch processing:', error)
                 sendResponse({
                     success: false,
-                    error: 'Failed to read audio data',
+                    error: 'Failed to read batch audio data',
                 })
             }
 
-            reader.readAsDataURL(latestChunk)
+            reader.readAsDataURL(mergedBlob)
         } catch (error) {
-            console.error('Error processing RecordRTC audio data:', error)
+            console.error('Error processing RecordRTC batch audio data:', error)
             sendResponse({
                 success: false,
-                error: 'Failed to process audio chunk: ' + error.message,
+                error: 'Failed to process audio batch: ' + error.message,
             })
         }
     } else {
-        console.log('No RecordRTC audio chunks available to process')
+        console.log('No RecordRTC audio chunks available for batch processing')
         sendResponse({
             success: false,
             error: 'No audio chunks available',
         })
+    }
+}
+
+// Handle silence analysis request from service worker
+async function handleAnalyzeSilence(message, sendResponse) {
+    try {
+        console.log('Analyzing audio for silence in offscreen document...')
+        
+        if (!message.audioData || !message.mimeType) {
+            sendResponse({
+                success: false,
+                error: 'Missing audio data or MIME type'
+            })
+            return
+        }
+        
+        // Convert base64 audio data back to blob
+        const binaryString = atob(message.audioData)
+        const bytes = new Uint8Array(binaryString.length)
+        for (let i = 0; i < binaryString.length; i++) {
+            bytes[i] = binaryString.charCodeAt(i)
+        }
+        
+        const audioBlob = new Blob([bytes], { type: message.mimeType })
+        
+        // Analyze the audio blob for silence
+        const analysisResult = await analyzeAudioForSilence(audioBlob)
+        
+        sendResponse({
+            success: true,
+            isSilent: analysisResult.isSilent,
+            metrics: analysisResult.metrics
+        })
+        
+    } catch (error) {
+        console.error('Error in handleAnalyzeSilence:', error)
+        sendResponse({
+            success: false,
+            error: error.message
+        })
+    }
+}
+
+// Analyze audio blob for silence using Web Audio API (available in offscreen document)
+async function analyzeAudioForSilence(audioBlob) {
+    try {
+        // Create an AudioContext for analysis
+        const audioContext = new (window.AudioContext || window.webkitAudioContext)()
+        
+        // Convert blob to ArrayBuffer
+        const arrayBuffer = await audioBlob.arrayBuffer()
+        
+        // Decode audio data
+        let audioBuffer
+        try {
+            audioBuffer = await audioContext.decodeAudioData(arrayBuffer)
+        } catch (decodeError) {
+            console.warn('Could not decode audio for silence analysis:', decodeError)
+            // If we can't decode, assume it's not silent to be safe
+            audioContext.close()
+            return { isSilent: false, metrics: null }
+        }
+        
+        // Get the first channel data (mono or left channel)
+        const channelData = audioBuffer.getChannelData(0)
+        const sampleRate = audioBuffer.sampleRate
+        const duration = audioBuffer.duration
+        
+        console.log(`🔊 Audio analysis: ${duration.toFixed(2)}s, ${channelData.length} samples, ${sampleRate}Hz`)
+        
+        // Calculate RMS (Root Mean Square) for volume analysis
+        let sumOfSquares = 0
+        let maxAmplitude = 0
+        let aboveThresholdSamples = 0
+        
+        const SILENCE_THRESHOLD = 0.01 // Amplitude threshold for "silence"
+        const MIN_VOLUME_THRESHOLD = 0.001 // RMS threshold
+        
+        for (let i = 0; i < channelData.length; i++) {
+            const amplitude = Math.abs(channelData[i])
+            sumOfSquares += amplitude * amplitude
+            
+            if (amplitude > maxAmplitude) {
+                maxAmplitude = amplitude
+            }
+            
+            if (amplitude > SILENCE_THRESHOLD) {
+                aboveThresholdSamples++
+            }
+        }
+        
+        const rmsVolume = Math.sqrt(sumOfSquares / channelData.length)
+        const speechRatio = aboveThresholdSamples / channelData.length
+        
+        // Additional check for dynamic range
+        const dynamicRange = maxAmplitude
+        
+        // Determine if audio is mostly silent
+        const isLikelySilent = (
+            rmsVolume < MIN_VOLUME_THRESHOLD ||    // Very low RMS volume
+            speechRatio < 0.02 ||                  // Less than 2% above threshold
+            dynamicRange < 0.005                   // Very low dynamic range
+        )
+        
+        const metrics = {
+            rmsVolume,
+            maxAmplitude,
+            speechRatio,
+            dynamicRange,
+            duration,
+            sampleRate
+        }
+        
+        console.log(`📊 Silence Analysis:`)
+        console.log(`   RMS Volume: ${rmsVolume.toFixed(6)} (threshold: ${MIN_VOLUME_THRESHOLD})`)
+        console.log(`   Max Amplitude: ${maxAmplitude.toFixed(6)}`)
+        console.log(`   Speech Ratio: ${(speechRatio * 100).toFixed(1)}% (threshold: 2%)`)
+        console.log(`   Dynamic Range: ${dynamicRange.toFixed(6)}`)
+        console.log(`   Verdict: ${isLikelySilent ? '🔇 SILENT' : '🔊 HAS_AUDIO'}`)
+        
+        // Clean up
+        audioContext.close()
+        
+        return { 
+            isSilent: isLikelySilent, 
+            metrics 
+        }
+        
+    } catch (error) {
+        console.error('Error analyzing audio for silence:', error)
+        // If analysis fails, assume it's not silent to be safe
+        return { isSilent: false, metrics: null }
     }
 }
