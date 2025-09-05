@@ -96,7 +96,7 @@ class MeetingMindPopup {
         // Navigation listeners
         this.navTabs.forEach((tab) => {
             tab.addEventListener('click', (e) =>
-                this.switchPage(e.target.dataset.page),
+                this.switchPage(e.currentTarget.dataset.page),
             )
         })
 
