@@ -8,6 +8,7 @@ class MeetingMindPopup {
         this.currentPage = 'dashboard'
         this.sessionStartTime = null
         this.sessionTimer = null
+        this.recordingDuration = null  // Store actual recording duration when stopped
         this.wordCount = 0
         this.speakers = new Set()
         this.currentTheme = 'dark'
@@ -242,6 +243,7 @@ class MeetingMindPopup {
             if (response && response.success) {
                 this.isRecording = true
                 this.currentMeetingId = this.generateMeetingId()
+                this.sessionStartTime = Date.now() // Set start time when recording begins
                 this.updateUIState('recording')
                 this.startSessionTimer()
                 await chrome.storage.local.set({ isRecording: true })
@@ -279,6 +281,13 @@ class MeetingMindPopup {
 
             if (response.success) {
                 this.isRecording = false
+                
+                // Calculate and store the actual recording duration
+                if (this.sessionStartTime) {
+                    const actualDuration = Date.now() - this.sessionStartTime
+                    this.recordingDuration = this.formatDuration(actualDuration)
+                }
+                
                 this.updateUIState('ready')
                 this.stopSessionTimer()
                 await chrome.storage.local.set({ isRecording: false })
@@ -381,7 +390,7 @@ class MeetingMindPopup {
         if (this.transcript.length > 0) {
             const lastEntry = this.transcript[this.transcript.length - 1]
             const timeDiff = new Date(timestamp) - new Date(lastEntry.timestamp)
-            
+
             if (lastEntry.speaker === speaker && timeDiff < 5000) {
                 // Merge with previous entry
                 lastEntry.text = this.mergeTextChunks(lastEntry.text, newText)
@@ -407,7 +416,7 @@ class MeetingMindPopup {
     mergeTextChunks(existingText, newText) {
         // Smart merging that handles sentence boundaries
         const combined = existingText + ' ' + newText
-        
+
         // Clean up extra spaces and normalize punctuation
         return combined
             .replace(/\s+/g, ' ')
@@ -442,17 +451,18 @@ class MeetingMindPopup {
 
         // Use recent lines for better performance and proper sentence segmentation
         const recentLines = this.transcript.slice(-15)
-        const fullText = recentLines
-            .map(line => line.text)
-            .join(' ')
-        
+        const fullText = recentLines.map((line) => line.text).join(' ')
+
         // Handle abbreviations and proper sentence boundaries
         const sentences = fullText
-            .replace(/\b(?:Mr|Mrs|Ms|Dr|Prof|Sr|Jr|vs|etc|Inc|Ltd|Corp)\./gi, '$&<TEMP>')
+            .replace(
+                /\b(?:Mr|Mrs|Ms|Dr|Prof|Sr|Jr|vs|etc|Inc|Ltd|Corp)\./gi,
+                '$&<TEMP>',
+            )
             .split(/[.!?]+\s+/)
-            .map(s => s.replace(/<TEMP>/g, '.'))
-            .filter(s => s.trim().length > 0)
-        
+            .map((s) => s.replace(/<TEMP>/g, '.'))
+            .filter((s) => s.trim().length > 0)
+
         // Show last few sentences, each on its own line
         const lastSentences = sentences.slice(-3)
         const previewOutput = lastSentences
@@ -460,7 +470,9 @@ class MeetingMindPopup {
                 const trimmedSentence = sentence.trim()
                 if (trimmedSentence) {
                     return `<div class="preview-line">
-                        <span class="speaker-msg">${this.escapeHtml(trimmedSentence)}.</span>
+                        <span class="speaker-msg">${this.escapeHtml(
+                            trimmedSentence,
+                        )}.</span>
                     </div>`
                 }
                 return ''
@@ -515,9 +527,15 @@ class MeetingMindPopup {
 
                 // Split text into sentences for better readability
                 const sentences = this.splitIntoSentences(line.text)
-                const textContent = sentences.map((sentence, sentIndex) => {
-                    return `<div class="sentence-block ${isNewLine && sentIndex === sentences.length - 1 ? 'typing-effect' : ''}">${this.escapeHtml(sentence)}</div>`
-                }).join('')
+                const textContent = sentences
+                    .map((sentence, sentIndex) => {
+                        return `<div class="sentence-block ${
+                            isNewLine && sentIndex === sentences.length - 1
+                                ? 'typing-effect'
+                                : ''
+                        }">${this.escapeHtml(sentence)}</div>`
+                    })
+                    .join('')
 
                 return `<div class="output-line ${
                     isNewLine ? 'new-transcript-line' : ''
@@ -526,8 +544,8 @@ class MeetingMindPopup {
                 <div class="message-content">
                     <div class="speaker-header">
                         <span class="speaker-label ${speakerClass}">${
-                            line.speaker || 'Speaker'
-                        }</span>
+                    line.speaker || 'Speaker'
+                }</span>
                         <span class="timestamp">${timestamp}</span>
                     </div>
                     <div class="speaker-content">
@@ -554,13 +572,16 @@ class MeetingMindPopup {
 
     splitIntoSentences(text) {
         if (!text) return []
-        
+
         // Handle abbreviations and proper sentence boundaries
         const sentences = text
-            .replace(/\b(?:Mr|Mrs|Ms|Dr|Prof|Sr|Jr|vs|etc|Inc|Ltd|Corp)\./gi, '$&<TEMP>')
+            .replace(
+                /\b(?:Mr|Mrs|Ms|Dr|Prof|Sr|Jr|vs|etc|Inc|Ltd|Corp)\./gi,
+                '$&<TEMP>',
+            )
             .split(/[.!?]+\s+/)
-            .map(s => s.replace(/<TEMP>/g, '.'))
-            .filter(s => s.trim().length > 0)
+            .map((s) => s.replace(/<TEMP>/g, '.'))
+            .filter((s) => s.trim().length > 0)
 
         // If no proper sentences found, return the original text
         return sentences.length > 0 ? sentences : [text]
@@ -580,6 +601,14 @@ class MeetingMindPopup {
         this.displayTranscript()
         this.hideSummary()
         this.summarizeBtn.disabled = true
+
+        // Reset session timer and UI display
+        this.stopSessionTimer()
+        this.sessionStartTime = null
+        this.recordingDuration = null
+        if (this.sessionTime) this.sessionTime.textContent = '00:00:00'
+        if (this.durationEl) this.durationEl.textContent = '00:00'
+
         try {
             await chrome.storage.local.remove('transcript')
         } catch (error) {
@@ -780,12 +809,18 @@ class MeetingMindPopup {
         }
 
         try {
+            const wordCount = this.transcript.reduce(
+                (count, line) => count + (line.text || '').split(' ').length,
+                0,
+            )
+
             const meetingData = {
                 id: this.currentMeetingId,
                 timestamp: new Date().toISOString(),
                 transcript: this.transcript,
                 summary: this.meetingSummary,
-                duration: null, // Could be calculated if needed
+                duration: this.recordingDuration || 'Unknown',
+                wordCount: wordCount,
             }
 
             // Save to meetings storage
@@ -915,9 +950,7 @@ class MeetingMindPopup {
                     { hour: '2-digit', minute: '2-digit' },
                 )
                 const duration = meeting.duration || 'Unknown'
-                const wordCount = meeting.transcript
-                    ? meeting.transcript.length
-                    : 0
+                const wordCount = meeting.wordCount || 0
 
                 return `
                 <div class=\"session-item\" style=\"margin-bottom: 12px; padding: 10px; background: var(--bg-tertiary); border-radius: 4px; border-left: 3px solid var(--text-accent);\">
@@ -1081,7 +1114,10 @@ class MeetingMindPopup {
     }
 
     startSessionTimer() {
-        this.sessionStartTime = Date.now()
+        // Only start the UI timer - sessionStartTime should already be set when recording begins
+        if (!this.sessionStartTime) {
+            this.sessionStartTime = Date.now() // Fallback if not set
+        }
         this.sessionTimer = setInterval(() => {
             const elapsed = Date.now() - this.sessionStartTime
             const duration = this.formatDuration(elapsed)
@@ -1188,49 +1224,6 @@ class MeetingMindPopup {
                 line.style.display = 'none'
             }
         })
-    }
-
-    // Analytics methods
-    async loadAnalytics() {
-        const data = await chrome.storage.local.get(['meetings'])
-        const meetings = data.meetings || []
-
-        if (meetings.length === 0) {
-            this.sessionHistory.innerHTML =
-                '<div class="no-data">No sessions recorded yet</div>'
-            return
-        }
-
-        const sessionHtml = meetings
-            .slice(-5)
-            .reverse()
-            .map((meeting, index) => {
-                const date = new Date(meeting.timestamp).toLocaleDateString()
-                const time = new Date(meeting.timestamp).toLocaleTimeString(
-                    [],
-                    { hour: '2-digit', minute: '2-digit' },
-                )
-                const duration = meeting.duration || 'Unknown'
-                const wordCount = meeting.transcript
-                    ? meeting.transcript.length
-                    : 0
-
-                return `
-                <div class="session-item" style="margin-bottom: 12px; padding: 10px; background: var(--bg-tertiary); border-radius: 4px; border-left: 3px solid var(--text-accent);">
-                    <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
-                        <span style="color: var(--text-accent); font-weight: 600;">${date}</span>
-                        <span style="color: var(--text-secondary);">${time}</span>
-                    </div>
-                    <div style="display: flex; gap: 16px; font-size: 10px; color: var(--text-secondary);">
-                        <span>WORDS: ${wordCount}</span>
-                        <span>DURATION: ${duration}</span>
-                    </div>
-                </div>
-            `
-            })
-            .join('')
-
-        this.sessionHistory.innerHTML = sessionHtml
     }
 
     // Settings methods
