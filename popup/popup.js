@@ -9,7 +9,6 @@ class MeetingMindPopup {
         this.sessionStartTime = null
         this.sessionTimer = null
         this.wordCount = 0
-        this.speakerCount = 0
         this.speakers = new Set()
         this.currentTheme = 'dark'
 
@@ -34,7 +33,6 @@ class MeetingMindPopup {
         this.previewContainer = document.getElementById('previewContainer')
         this.sessionTime = document.getElementById('sessionTime')
         this.wordCount = document.getElementById('wordCount')
-        this.speakerCountEl = document.getElementById('speakerCount')
         this.durationEl = document.getElementById('duration')
 
         // Transcript elements
@@ -373,15 +371,49 @@ class MeetingMindPopup {
     }
 
     addTranscriptLine(data) {
+        const newText = data.text.trim()
+        if (!newText) return
+
+        const speaker = data.speaker || 'Speaker'
+        const timestamp = new Date().toISOString()
+
+        // Check if we can merge with the last entry (same speaker, within 5 seconds)
+        if (this.transcript.length > 0) {
+            const lastEntry = this.transcript[this.transcript.length - 1]
+            const timeDiff = new Date(timestamp) - new Date(lastEntry.timestamp)
+            
+            if (lastEntry.speaker === speaker && timeDiff < 5000) {
+                // Merge with previous entry
+                lastEntry.text = this.mergeTextChunks(lastEntry.text, newText)
+                lastEntry.timestamp = timestamp
+                this.displayTranscript()
+                this.saveTranscript()
+                return
+            }
+        }
+
+        // Create new entry
         const transcriptLine = {
-            text: data.text,
-            speaker: data.speaker || 'Speaker',
-            timestamp: new Date().toISOString(),
+            text: newText,
+            speaker: speaker,
+            timestamp: timestamp,
         }
 
         this.transcript.push(transcriptLine)
         this.displayTranscript()
         this.saveTranscript()
+    }
+
+    mergeTextChunks(existingText, newText) {
+        // Smart merging that handles sentence boundaries
+        const combined = existingText + ' ' + newText
+        
+        // Clean up extra spaces and normalize punctuation
+        return combined
+            .replace(/\s+/g, ' ')
+            .replace(/\s+([.,!?;:])/g, '$1')
+            .replace(/([.!?])\s*([a-z])/g, '$1 $2')
+            .trim()
     }
 
     displayTranscript() {
@@ -408,13 +440,24 @@ class MeetingMindPopup {
             return
         }
 
-        // Show last few lines in clean preview style without line numbers
-        const lastLines = this.transcript.slice(-3)
-        const previewOutput = lastLines
-            .map((line, index) => {
-                return `<div class="preview-line">
-                <span class="speaker-msg">${this.escapeHtml(line.text)}</span>
-            </div>`
+        // Concatenate all transcript text and split only on periods
+        const fullText = this.transcript
+            .map(line => line.text)
+            .join(' ')
+        
+        const sentences = fullText.split('.').filter(sentence => sentence.trim().length > 0)
+        
+        // Show last few sentences, each on its own line
+        const lastSentences = sentences.slice(-3)
+        const previewOutput = lastSentences
+            .map((sentence, index) => {
+                const trimmedSentence = sentence.trim()
+                if (trimmedSentence) {
+                    return `<div class="preview-line">
+                        <span class="speaker-msg">${this.escapeHtml(trimmedSentence)}.</span>
+                    </div>`
+                }
+                return ''
             })
             .join('')
 
@@ -464,18 +507,27 @@ class MeetingMindPopup {
                 const speakerClass = `speaker-${speakerIndex}`
                 const isNewLine = index === this.transcript.length - 1
 
+                // Split text into sentences for better readability
+                const sentences = this.splitIntoSentences(line.text)
+                const textContent = sentences.map((sentence, sentIndex) => {
+                    return `<div class="sentence-block ${isNewLine && sentIndex === sentences.length - 1 ? 'typing-effect' : ''}">${this.escapeHtml(sentence)}</div>`
+                }).join('')
+
                 return `<div class="output-line ${
                     isNewLine ? 'new-transcript-line' : ''
                 }" style="--line-index: ${index}">
-                <span class="line-number">${lineNum}</span>
                 <div class="speaker-avatar ${speakerClass}"></div>
-                <span class="speaker-label ${speakerClass}">${
-                    line.speaker || 'Speaker'
-                }:</span>
-                <span class="speaker-msg ${
-                    isNewLine ? 'typing-effect' : ''
-                }">${this.escapeHtml(line.text)}</span>
-                <span class="timestamp">[${timestamp}]</span>
+                <div class="message-content">
+                    <div class="speaker-header">
+                        <span class="speaker-label ${speakerClass}">${
+                            line.speaker || 'Speaker'
+                        }</span>
+                        <span class="timestamp">${timestamp}</span>
+                    </div>
+                    <div class="speaker-content">
+                        ${textContent}
+                    </div>
+                </div>
             </div>`
             })
             .join('')
@@ -492,6 +544,26 @@ class MeetingMindPopup {
                 }
             }, 2000)
         }
+    }
+
+    splitIntoSentences(text) {
+        if (!text) return []
+        
+        // Split on sentence endings but preserve incomplete thoughts
+        const sentences = text
+            .split(/([.!?]+\s+)/) 
+            .filter(s => s.trim().length > 0)
+            .reduce((acc, part, index, array) => {
+                if (index % 2 === 0) {
+                    // This is text
+                    const nextPart = array[index + 1] || ''
+                    acc.push((part + nextPart).trim())
+                }
+                return acc
+            }, [])
+
+        // If no proper sentences found, return the original text
+        return sentences.length > 0 ? sentences : [text]
     }
 
     async saveTranscript() {
@@ -646,7 +718,6 @@ class MeetingMindPopup {
     }
 
     showSummaryLoading() {
-        this.summarySection.style.display = 'block'
         this.summaryLoading.style.display = 'block'
         this.summaryContent.style.display = 'none'
     }
@@ -1007,8 +1078,6 @@ class MeetingMindPopup {
 
         // Update UI
         if (this.wordCountEl) this.wordCountEl.textContent = this.wordCount
-        if (this.speakerCountEl)
-            this.speakerCountEl.textContent = this.speakers.size
     }
 
     startSessionTimer() {

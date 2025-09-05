@@ -374,7 +374,7 @@ body::before {
 
 .preview-container {
     padding: 16px;
-    min-height: 120px;
+    min-height: 240px;
     font-family: var(--font-mono);
     background: var(--bg-primary);
     border-top: 1px solid var(--border-primary);
@@ -510,16 +510,25 @@ body::before {
 
 .output-line {
     display: flex;
-    margin-bottom: 4px;
-    min-height: 20px;
+    margin-bottom: 12px;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 12px 16px;
+    border-radius: 6px;
+    transition: all 0.2s ease;
+}
+
+.output-line:hover {
+    background: var(--bg-tertiary);
 }
 
 .line-number {
     color: var(--text-secondary);
-    margin-right: 12px;
     user-select: none;
     width: 30px;
     flex-shrink: 0;
+    font-size: 10px;
+    margin-top: 2px;
 }
 
 .system-msg {
@@ -531,17 +540,56 @@ body::before {
     color: var(--text-primary);
 }
 
+.message-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.speaker-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 4px;
+}
+
 .speaker-label {
     color: var(--text-accent);
     font-weight: 600;
-    margin-right: 8px;
+    font-size: 12px;
+    text-transform: capitalize;
+}
+
+.speaker-content {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.sentence-block {
+    line-height: 1.6;
+    color: var(--text-primary);
+    font-size: 13px;
+    word-wrap: break-word;
+}
+
+.sentence-block.incomplete {
+    opacity: 0.8;
+    font-style: italic;
+}
+
+.sentence-block.incomplete::after {
+    content: '...';
+    color: var(--text-secondary);
+    margin-left: 2px;
 }
 
 .timestamp {
     color: var(--text-secondary);
     font-size: 10px;
-    margin-left: 8px;
-    opacity: 0.7;
+    opacity: 0.6;
+    font-family: var(--font-mono);
 }
 
 /* Analytics Page */
@@ -1049,13 +1097,12 @@ body[data-theme='matrix']::before {
 
 /* Speaker avatar placeholder */
 .speaker-avatar {
-    width: 20px;
-    height: 20px;
+    width: 32px;
+    height: 32px;
     border-radius: 50%;
-    display: inline-block;
-    margin-right: 8px;
+    flex-shrink: 0;
     position: relative;
-    vertical-align: middle;
+    margin-top: 2px;
 }
 
 .speaker-avatar::before {
