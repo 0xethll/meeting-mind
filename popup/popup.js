@@ -32,7 +32,7 @@ class MeetingMindPopup {
         // Dashboard elements
         this.previewContainer = document.getElementById('previewContainer')
         this.sessionTime = document.getElementById('sessionTime')
-        this.wordCount = document.getElementById('wordCount')
+        this.wordCountEl = document.getElementById('wordCount')
         this.durationEl = document.getElementById('duration')
 
         // Transcript elements
@@ -440,12 +440,18 @@ class MeetingMindPopup {
             return
         }
 
-        // Concatenate all transcript text and split only on periods
-        const fullText = this.transcript
+        // Use recent lines for better performance and proper sentence segmentation
+        const recentLines = this.transcript.slice(-15)
+        const fullText = recentLines
             .map(line => line.text)
             .join(' ')
         
-        const sentences = fullText.split('.').filter(sentence => sentence.trim().length > 0)
+        // Handle abbreviations and proper sentence boundaries
+        const sentences = fullText
+            .replace(/\b(?:Mr|Mrs|Ms|Dr|Prof|Sr|Jr|vs|etc|Inc|Ltd|Corp)\./gi, '$&<TEMP>')
+            .split(/[.!?]+\s+/)
+            .map(s => s.replace(/<TEMP>/g, '.'))
+            .filter(s => s.trim().length > 0)
         
         // Show last few sentences, each on its own line
         const lastSentences = sentences.slice(-3)
@@ -549,18 +555,12 @@ class MeetingMindPopup {
     splitIntoSentences(text) {
         if (!text) return []
         
-        // Split on sentence endings but preserve incomplete thoughts
+        // Handle abbreviations and proper sentence boundaries
         const sentences = text
-            .split(/([.!?]+\s+)/) 
+            .replace(/\b(?:Mr|Mrs|Ms|Dr|Prof|Sr|Jr|vs|etc|Inc|Ltd|Corp)\./gi, '$&<TEMP>')
+            .split(/[.!?]+\s+/)
+            .map(s => s.replace(/<TEMP>/g, '.'))
             .filter(s => s.trim().length > 0)
-            .reduce((acc, part, index, array) => {
-                if (index % 2 === 0) {
-                    // This is text
-                    const nextPart = array[index + 1] || ''
-                    acc.push((part + nextPart).trim())
-                }
-                return acc
-            }, [])
 
         // If no proper sentences found, return the original text
         return sentences.length > 0 ? sentences : [text]
