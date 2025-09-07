@@ -85,7 +85,7 @@ class MeetingMindPopup {
             this.closeSummaryModal(),
         )
         this.exportSummaryBtn.addEventListener('click', () =>
-            this.exportSummary(),
+            this.exportTranscript(),
         )
 
         // Search listener
@@ -96,7 +96,7 @@ class MeetingMindPopup {
         // Navigation listeners
         this.navTabs.forEach((tab) => {
             tab.addEventListener('click', (e) =>
-                this.switchPage(e.target.dataset.page),
+                this.switchPage(e.currentTarget.dataset.page),
             )
         })
 
@@ -169,6 +169,8 @@ class MeetingMindPopup {
             if (data.transcript && data.transcript.length > 0) {
                 this.transcript = data.transcript
                 this.displayTranscript()
+                // Enable analyze button if we have transcript data
+                this.summarizeBtn.disabled = false
             }
         } catch (error) {
             console.error('Error loading stored data:', error)
@@ -292,11 +294,6 @@ class MeetingMindPopup {
                 this.stopSessionTimer()
                 await chrome.storage.local.set({ isRecording: false })
                 this.showSuccess('Recording stopped successfully')
-
-                // Enable summarize button if we have transcript
-                if (this.transcript.length > 0) {
-                    this.summarizeBtn.disabled = false
-                }
 
                 // Auto-export if enabled
                 const settings = await chrome.storage.local.get(['autoExport'])
@@ -434,6 +431,9 @@ class MeetingMindPopup {
 
         // Update stats
         this.updateStats()
+
+        // Enable/disable analyze button based on transcript data
+        this.summarizeBtn.disabled = this.transcript.length === 0
     }
 
     updatePreview() {
@@ -868,69 +868,6 @@ class MeetingMindPopup {
         }
     }
 
-    // Theme management
-    async loadTheme() {
-        const data = await chrome.storage.local.get(['theme'])
-        this.currentTheme = data.theme || 'dark'
-        document.body.setAttribute('data-theme', this.currentTheme)
-        if (this.themeSelect) {
-            this.themeSelect.value = this.currentTheme
-        }
-    }
-
-    async changeTheme() {
-        this.currentTheme = this.themeSelect.value
-        document.body.setAttribute('data-theme', this.currentTheme)
-        await chrome.storage.local.set({ theme: this.currentTheme })
-    }
-
-    async summarizeTranscript() {
-        console.log('start summarize')
-        if (this.transcript.length === 0) {
-            this.showError('No transcript to summarize')
-            return
-        }
-
-        try {
-            // Show modal and loading state
-            this.showSummaryModal()
-            this.showSummaryLoading()
-            this.summarizeBtn.disabled = true
-            this.summarizeBtn.textContent = 'ANALYZING...'
-
-            // Get full transcript text
-            const fullTranscript = this.transcript
-                .map((line) => line.text)
-                .join(' ')
-
-            // Send to background script for summarization
-            const response = await chrome.runtime.sendMessage({
-                action: 'summarizeTranscript',
-                transcript: fullTranscript,
-            })
-
-            if (!response.success) {
-                throw new Error(response.error || 'Failed to generate summary')
-            }
-        } catch (error) {
-            console.error('Error summarizing transcript:', error)
-            this.showSummaryError(error.message)
-        }
-    }
-    // Search functionality
-    searchTranscript(query) {
-        const lines = this.transcriptFull.querySelectorAll('.output-line')
-        lines.forEach((line) => {
-            const text = line.textContent.toLowerCase()
-            const match = query.toLowerCase()
-            if (query === '' || text.includes(match)) {
-                line.style.display = 'flex'
-                line.style.opacity = '1'
-            } else {
-                line.style.display = 'none'
-            }
-        })
-    }
     // Analytics methods
     async loadAnalytics() {
         const data = await chrome.storage.local.get(['meetings'])
@@ -1015,6 +952,37 @@ class MeetingMindPopup {
         await chrome.storage.local.set(settings)
     }
 
+    // Theme management
+    async loadTheme() {
+        const data = await chrome.storage.local.get(['theme'])
+        this.currentTheme = data.theme || 'dark'
+        document.body.setAttribute('data-theme', this.currentTheme)
+        if (this.themeSelect) {
+            this.themeSelect.value = this.currentTheme
+        }
+    }
+
+    async changeTheme() {
+        this.currentTheme = this.themeSelect.value
+        document.body.setAttribute('data-theme', this.currentTheme)
+        await chrome.storage.local.set({ theme: this.currentTheme })
+    }
+
+    // Search functionality
+    searchTranscript(query) {
+        const lines = this.transcriptFull.querySelectorAll('.output-line')
+        lines.forEach((line) => {
+            const text = line.textContent.toLowerCase()
+            const match = query.toLowerCase()
+            if (query === '' || text.includes(match)) {
+                line.style.display = 'flex'
+                line.style.opacity = '1'
+            } else {
+                line.style.display = 'none'
+            }
+        })
+    }
+
     // Modal methods
     showSummaryModal() {
         this.summaryModal.style.display = 'flex'
@@ -1026,6 +994,7 @@ class MeetingMindPopup {
         this.summarizeBtn.textContent = 'ANALYZE'
     }
 
+    // Keep this method for potential future JSON export
     async exportSummary() {
         if (!this.meetingSummary) {
             this.showError('No summary to export')
@@ -1056,6 +1025,7 @@ class MeetingMindPopup {
         this.showSuccess('Analysis exported successfully!')
     }
 
+    // Utility methods
     showError(message) {
         this.showNotification(message, 'error')
     }
@@ -1077,7 +1047,6 @@ class MeetingMindPopup {
         }, 4000)
     }
 
-    // New utility methods
     escapeHtml(text) {
         const div = document.createElement('div')
         div.textContent = text
@@ -1208,117 +1177,6 @@ class MeetingMindPopup {
         ]
 
         return supportedDomains.some((domain) => url.includes(domain))
-    }
-
-    // Search functionality
-    searchTranscript(query) {
-        const lines = this.transcriptFull.querySelectorAll('.output-line')
-        lines.forEach((line) => {
-            const text = line.textContent.toLowerCase()
-            const match = query.toLowerCase()
-
-            if (query === '' || text.includes(match)) {
-                line.style.display = 'flex'
-                line.style.opacity = '1'
-            } else {
-                line.style.display = 'none'
-            }
-        })
-    }
-
-    // Settings methods
-    async loadSettings() {
-        const data = await chrome.storage.local.get([
-            'fireworksApiKey',
-            'theme',
-            'autoExport',
-        ])
-
-        if (
-            data.fireworksApiKey &&
-            data.fireworksApiKey !== 'YOUR_API_KEY_HERE'
-        ) {
-            this.apiKeyInput.placeholder = 'API key configured ✓'
-            this.apiKeyInput.style.borderColor = 'var(--text-success)'
-        }
-
-        this.themeSelect.value = data.theme || 'dark'
-        this.autoExport.checked = data.autoExport || false
-    }
-
-    async saveApiKeyHandler() {
-        const apiKey = this.apiKeyInput.value.trim()
-        if (!apiKey) {
-            this.showError('Please enter a valid API key')
-            return
-        }
-
-        try {
-            await chrome.storage.local.set({ fireworksApiKey: apiKey })
-            this.showSuccess('API key saved successfully!')
-            this.apiKeyInput.placeholder = 'API key configured ✓'
-            this.apiKeyInput.value = ''
-            this.apiKeyInput.style.borderColor = 'var(--text-success)'
-        } catch (error) {
-            this.showError('Failed to save API key: ' + error.message)
-        }
-    }
-
-    async saveSettings() {
-        const settings = {
-            autoExport: this.autoExport.checked,
-        }
-
-        await chrome.storage.local.set(settings)
-    }
-
-    // Modal methods
-    showSummaryModal() {
-        this.summaryModal.style.display = 'flex'
-    }
-
-    closeSummaryModal() {
-        this.summaryModal.style.display = 'none'
-        this.summarizeBtn.disabled = false
-        this.summarizeBtn.textContent = 'ANALYZE'
-    }
-
-    async exportSummary() {
-        if (!this.meetingSummary) {
-            this.showError('No summary to export')
-            return
-        }
-
-        const exportData = {
-            meeting_id: this.currentMeetingId,
-            timestamp: new Date().toISOString(),
-            summary: this.meetingSummary,
-            transcript: this.transcript,
-        }
-
-        const blob = new Blob([JSON.stringify(exportData, null, 2)], {
-            type: 'application/json',
-        })
-        const url = URL.createObjectURL(blob)
-        const a = document.createElement('a')
-        a.href = url
-        a.download = `meeting-analysis-${
-            new Date().toISOString().split('T')[0]
-        }.json`
-        document.body.appendChild(a)
-        a.click()
-        document.body.removeChild(a)
-        URL.revokeObjectURL(url)
-
-        this.showSuccess('Analysis exported successfully!')
-    }
-
-    showError(message) {
-        this.showNotification(message, 'error')
-    }
-
-    showSuccess(message) {
-        this.showNotification(message, 'success')
     }
 }
 
